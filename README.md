@@ -18,7 +18,15 @@ The provider_secrets file contains the secret details needed to authenticate aga
 Once you have your details, add them to the file
 
 ```json
-{                                                                                                                               "amazon": {                                                                                                                     "clientID": "xxxxxxxxxxxxxx",                                                                                           "clientSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",                                                           "redirectURL": "http://localhost:9090/auth/amazon/callback"                                                     },                                                                                                                      "bitbucket": {                                                                                                                  "clientID": "xxxxxxxxxxxxxx",                                                                                           "clientSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",                                                           "redirectURL": "http://localhost:9090/auth/bitbucket/callback"                                                    },                                                                                                                      "facebook": {   
+{
+  "amazon": {
+    "clientSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "redirectURL": "http://localhost:9090/auth/amazon/callback"
+ },
+ "bitbucket": {
+  "clientSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "redirectURL": "http://localhost:9090/auth/bitbucket/callback"
+  },                                                                                                                         
 }
 ```
 
