@@ -233,7 +233,7 @@ func idToSessionToken(id string) string {
 //Show the user their revocable token
 func tokenShowHandler(c *gin.Context, blah string, token string) {
 	sessionID := c.Query("id")
-	displayPage(c, sessionID, "files/metro/1.html")
+	displayPage(c, sessionID, "files/showToken.html")
 }
 
 //Show the user the successfull login message
@@ -266,7 +266,7 @@ func setupNewUser(c *gin.Context, foreignID string, token string) string {
 
 func newTokenHandler(c *gin.Context, id string, token string) {
 	sessionToken := newToken(id)
-	displayPage(c, sessionToken, "files/metro/1.html")
+	displayPage(c, sessionToken, "files/showToken.html")
 }
 
 //Display a html file, inserting the revocable token as needed
