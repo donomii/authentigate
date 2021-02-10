@@ -39,3 +39,25 @@ A sample file called provider_secrets.json.examples can be found in the reposito
 # Operation
 
 Authentigate is still in development.  At the moment, it redirects to hard-coded microservices(that are reasonably easy to change in the code).  Moving this configuration into a file is a priority.
+
+The default microservice is expected to run on http://localhost:91/.  All external requests to baseUrl/secure will be sent to this microservice.
+
+Rather than relaying the entire request, authentigate creates a new request, and only copies what is necessary for the request.  It also adds four HTTP parameters: authentigate-id, authentigate-token, authentigate-base-url, authentigate-top-url.
+
+## authentigate-id
+
+This is authentigate's internal user id.  You should not show it to the user, and you should use it as a key for user data
+
+## authentigate-token
+
+This is the revocable session token.  This is most useful for constructing automatic urls that will work with e.g. curl
+
+
+## authentigate-base-url
+
+The base url of your website (with session token)
+
+## authentigate-top-url
+
+The base url of your microservice (with session token).  You would add your API path to the end of this.
+
