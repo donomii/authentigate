@@ -5,11 +5,11 @@ To increase security and GDPR compliance, authentigate does not store user data,
 
 # Setup
 
-  go get github.com/donomii/authentigate
-  cd go/src/github.com/donomii/authentigate
-  go build .
-  vim provider_secrets.json
-  ./authentigate
+    go get github.com/donomii/authentigate
+    cd go/src/github.com/donomii/authentigate
+    go build .
+    vim provider_secrets.json
+    ./authentigate
   
 # Configuration
 
@@ -32,3 +32,8 @@ Once you have your details, add them to the file
 }
 ```
 
+Be aware that you will usually have to register the "redirecturl" with the oauth2 provider, and sometimes this registration is on a different page.
+
+# Operation
+
+Authentigate is still in development.  At the moment, it redirects to hard-coded microservices(that are reasonably easy to change in the code).  Moving this configuration into a file is a priority.
