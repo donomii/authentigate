@@ -34,6 +34,8 @@ Once you have your details, add them to the file
 
 Be aware that you will usually have to register the "redirecturl" with the oauth2 provider, and sometimes this registration is on a different page.
 
+A sample file called provider_secrets.json.examples can be found in the repository.  Rename it to provider_secrets.json and add your details.
+
 # Operation
 
 Authentigate is still in development.  At the moment, it redirects to hard-coded microservices(that are reasonably easy to change in the code).  Moving this configuration into a file is a priority.
