@@ -93,12 +93,12 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), tar
 		if id == "" {
 			log.Printf("Login failure for token: '%v'", token)
 			frontPageHandler(c)
+		} else {
+			if useCookie {
+				token = "c"
+			}
+			handlerFunc(c, id, token, target)
 		}
-		if useCookie {
-			token = "c"
-		}
-		handlerFunc(c, id, token, target)
-
 	}
 
 }
@@ -231,10 +231,10 @@ func tokenShowHandler(c *gin.Context, blah string, token, target string) {
 
 //Show the user the successfull login message
 func displayLoginPage(c *gin.Context, id string, sessionToken string) {
-	//Add switch here for cookie/url token mode
-	sessionToken = "c"
+
 	displayPage(c,
-		sessionToken,
+		//Add switch here for cookie/url token mode
+		"c",
 		"files/loginSuccessful.html",
 		map[string]string{"AuthentigateSessionToken": sessionToken})
 }
