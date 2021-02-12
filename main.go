@@ -222,7 +222,7 @@ func displayLoginPage(c *gin.Context, token string, sessionToken string) {
 	displayPage(c,
 		MakeExternalPrefix(baseUrl, sessionToken),
 		"files/loginSuccessful.html",
-		map[string]string{"SessionToken": token})
+		map[string]string{"AuthentigateSessionToken": token})
 }
 
 //Save user details
