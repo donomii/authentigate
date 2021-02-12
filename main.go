@@ -131,7 +131,7 @@ func main() {
 	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, ""))
 
 	//Relay to microservices
-	router.GET("/secure/:token/general/*api", makeAuthedRelay(relayHandler, "http://localhost:91"))
+	router.GET("/secure/:token/general/*api", makeAuthedRelay(relayGetHandler, "http://localhost:91"))
 	router.GET("/secure/:token/ngfileserver/*api", makeAuthedRelay(ngfileserverRelayHandler, "http://localhost:92"))
 	router.PUT("/secure/:token/ngfileserver/*api", makeAuthedRelay(ngfileserverPutRelayHandler, "http://localhost:92"))
 	router.POST("/secure/:token/general/*api", makeAuthedRelay(relayPostHandler, "http://localhost:91"))
@@ -143,6 +143,7 @@ func main() {
 	router.GET("/auth/:provider", redirectHandler)
 	router.GET("/auth/:provider/callback", callbackHandler)
 
+	//Drop CSS and js libraries in here
 	router.Static("/files", "./files")
 	if develop {
 		router.GET("/develop/auth/callback", developCallbackHandler)
@@ -151,7 +152,7 @@ func main() {
 	if develop {
 		router.Run("127.0.0.1:80")
 	} else {
-		log.Fatal(autotls.Run(router, "entirety.praeceptamachinae.com", "garden.praeceptamachinae.com"))
+		log.Fatal(autotls.Run(router, "entirety.praeceptamachinae.com", "garden.praeceptamachinae.com", "demo.praeceptamachinae.com"))
 	}
 }
 
@@ -161,7 +162,7 @@ func frontPageHandler(c *gin.Context) {
 	if develop {
 		extra = "<a href='/develop/auth/callback'><button>Login with no password</button></a><br>"
 	}
-	c.Writer.Write([]byte("<html><head><title>Gocialite example</title></head><body>" +
+	c.Writer.Write([]byte("<html><head><title>Authentigate</title></head><body>" +
 		"<a href='/auth/github'><button>Login with GitHub</button></a><br>" +
 		"<a href='/auth/linkedin'><button>Login with LinkedIn</button></a><br>" +
 		"<a href='/auth/google'><button>Login with Google</button></a><br>" +
@@ -176,6 +177,7 @@ func frontPageHandler(c *gin.Context) {
 
 }
 
+//Given a session token, find the authentigate id
 func sessionTokenToId(sessionToken string) string {
 	var id string
 	found, err := b.SessionTokens.Get(sessionToken, &id)
@@ -191,6 +193,7 @@ func sessionTokenToId(sessionToken string) string {
 	return string(id)
 }
 
+//Load user data
 func LoadUser(id string) *userData_t {
 	var user userData_t
 	found, err := b.Users.Get(id, &user)
@@ -201,6 +204,7 @@ func LoadUser(id string) *userData_t {
 	return &user
 }
 
+//Given a provider id (string is provider name + provider id), find the authentigate id
 func foreignIdToId(fid string) string {
 	var id string
 	found, err := b.ForeignIDs.Get(fid, &id)
@@ -213,6 +217,7 @@ func foreignIdToId(fid string) string {
 	return string(id)
 }
 
+//Given an authentigate id, load the current session token
 func idToSessionToken(id string) string {
 
 	user := LoadUser(id)
@@ -246,7 +251,6 @@ func SaveUser(user *userData_t) {
 }
 
 func setupNewUser(c *gin.Context, foreignID string, token string) string {
-	//id is the id provided from oauth2, not the revocable token
 
 	u1 := uuid.Must(uuid.NewV4())
 	fmt.Printf("new user UUIDv4: %s\n", u1)
@@ -335,7 +339,7 @@ func AddAuthToRequest(req *http.Request, id, token, microserviceBaseUrl, baseUrl
 }
 
 // Redirect to default microservice, using GET
-func relayHandler(c *gin.Context, id, token, target string) {
+func relayGetHandler(c *gin.Context, id, token, target string) {
 
 	api := c.Param("api")
 
