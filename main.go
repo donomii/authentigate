@@ -218,11 +218,11 @@ func tokenShowHandler(c *gin.Context, blah string, token, target string) {
 }
 
 //Show the user the successfull login message
-func displayLoginPage(c *gin.Context, token string, sessionToken string) {
+func displayLoginPage(c *gin.Context, id string, sessionToken string) {
 	displayPage(c,
 		MakeExternalPrefix(baseUrl, sessionToken),
 		"files/loginSuccessful.html",
-		map[string]string{"AuthentigateSessionToken": token})
+		map[string]string{"AuthentigateSessionToken": sessionToken})
 }
 
 //Save user details
@@ -259,6 +259,7 @@ func displayPage(c *gin.Context, token, filename string, cookies map[string]stri
 	template := string(templateb)
 	template = templateSet(template, "TOKEN", token)
 	if cookies != nil {
+		fmt.Printf("Setting cookies %v\n", cookies)
 		for cookieName, cookieValue := range cookies {
 			http.SetCookie(c.Writer, &http.Cookie{Name: cookieName, Value: cookieValue})
 		}
