@@ -83,6 +83,8 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), tar
 		if err == nil {
 			log.Println("Found authentigate cookie")
 		} else {
+			log.Println("Cookie not found, using token")
+			log.Println(err)
 			token = c.Param("token")
 		}
 		id := sessionTokenToId(token)
@@ -266,7 +268,7 @@ func displayPage(c *gin.Context, token, filename string, cookies map[string]stri
 	if cookies != nil {
 		fmt.Printf("Setting cookies %v\n", cookies)
 		for cookieName, cookieValue := range cookies {
-			http.SetCookie(c.Writer, &http.Cookie{Name: cookieName, Value: cookieValue})
+			http.SetCookie(c.Writer, &http.Cookie{Name: cookieName, Value: cookieValue, Path: "/"})
 		}
 	}
 	c.Writer.Write([]byte(template))
