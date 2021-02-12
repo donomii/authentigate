@@ -75,7 +75,7 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), tar
 				log.Printf("Failure while processing %v: %v", c.Request.URL, r)
 				debug.PrintStack()
 				c.Status(500)
-				displayPage(c, "", "files/BackendFailure.html")
+				displayPage(c, "", "files/BackendFailure.html", nil)
 			}
 		}()
 
@@ -214,12 +214,15 @@ func idToSessionToken(id string) string {
 //Show the user their revocable token
 func tokenShowHandler(c *gin.Context, blah string, token, target string) {
 	sessionID := c.Query("id")
-	displayPage(c, sessionID, "files/showToken.html")
+	displayPage(c, sessionID, "files/showToken.html", nil)
 }
 
 //Show the user the successfull login message
-func displayLoginPage(c *gin.Context, id string, sessionToken string) {
-	displayPage(c, MakeExternalPrefix(baseUrl, sessionToken), "files/loginSuccessful.html")
+func displayLoginPage(c *gin.Context, token string, sessionToken string) {
+	displayPage(c,
+		MakeExternalPrefix(baseUrl, sessionToken),
+		"files/loginSuccessful.html",
+		map[string]string{"SessionToken": token})
 }
 
 //Save user details
@@ -247,14 +250,19 @@ func setupNewUser(c *gin.Context, foreignID string, token string) string {
 
 func newTokenHandler(c *gin.Context, id string, token, target string) {
 	sessionToken := newToken(id)
-	displayPage(c, sessionToken, "files/showToken.html")
+	displayPage(c, sessionToken, "files/showToken.html", nil)
 }
 
-//Display a html file, inserting the revocable token as needed
-func displayPage(c *gin.Context, id, filename string) {
+//Display a html file, inserting the revocable session token as needed
+func displayPage(c *gin.Context, token, filename string, cookies map[string]string) {
 	templateb, _ := ioutil.ReadFile(filename)
 	template := string(templateb)
-	template = templateSet(template, "TOKEN", id)
+	template = templateSet(template, "TOKEN", token)
+	if cookies != nil {
+		for cookieName, cookieValue := range cookies {
+			http.SetCookie(c.Writer, &http.Cookie{Name: cookieName, Value: cookieValue})
+		}
+	}
 	c.Writer.Write([]byte(template))
 }
 
