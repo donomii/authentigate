@@ -231,6 +231,8 @@ func tokenShowHandler(c *gin.Context, blah string, token, target string) {
 
 //Show the user the successfull login message
 func displayLoginPage(c *gin.Context, id string, sessionToken string) {
+	//Add switch here for cookie/url token mode
+	sessionToken = "c"
 	displayPage(c,
 		sessionToken,
 		"files/loginSuccessful.html",
