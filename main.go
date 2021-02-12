@@ -136,8 +136,8 @@ func main() {
 	router.PUT("/secure/:token/ngfileserver/*api", makeAuthedRelay(ngfileserverPutRelayHandler, "http://localhost:92"))
 	router.POST("/secure/:token/general/*api", makeAuthedRelay(relayPostHandler, "http://localhost:91"))
 	router.POST("/secure/:token/quester/*api", makeAuthedRelay(relayPostHandler, "http://localhost:93/quester"))
-	router.GET("/secure/:token/quester/*api", makeAuthedRelay(ngfileserverRelayParameterisedHandler, "http://localhost:93/quester"))
-	router.GET("/secure/:token/entirety/*api", makeAuthedRelay(ngfileserverRelayParameterisedHandler, "http://localhost:94"))
+	router.GET("/secure/:token/quester/*api", makeAuthedRelay(relayGetHandler, "http://localhost:93/quester"))
+	router.GET("/secure/:token/entirety/*api", makeAuthedRelay(relayGetHandler, "http://localhost:94"))
 
 	//These are required to handle oauth2
 	router.GET("/auth/:provider", redirectHandler)
