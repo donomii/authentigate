@@ -86,31 +86,9 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), tar
 			frontPageHandler(c)
 		}
 		handlerFunc(c, id, token, target)
+
 	}
 
-}
-
-//TODO replace with makeAuthedRelay
-func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Context) {
-	return func(c *gin.Context) {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Failure while processing %v: %v", c.Request.URL, r)
-				log.Printf("Failure while processing %v: %v", c.Request.URL, r)
-				debug.PrintStack()
-				c.Status(500)
-				displayPage(c, "", "files/BackendFailure.html")
-			}
-		}()
-
-		token := c.Param("token")
-		id := sessionTokenToId(token)
-		if id == "" {
-			log.Printf("Login failure for token: '%v'", token)
-			frontPageHandler(c)
-		}
-		handlerFunc(c, id, token)
-	}
 }
 
 func main() {
@@ -136,11 +114,14 @@ func main() {
 	router := gin.Default()
 
 	router.GET("/", frontPageHandler)
-	router.GET("/manage/:token/token", makeAuthed(tokenShowHandler))
-	router.GET("/manage/:token/newToken", makeAuthed(newTokenHandler))
-	router.GET("/secure/:token/general/*api", makeAuthed(relayHandler))
-	router.GET("/secure/:token/ngfileserver/*api", makeAuthed(ngfileserverRelayHandler))
-	router.PUT("/secure/:token/ngfileserver/*api", makeAuthed(ngfileserverPutRelayHandler))
+	//User management pages
+	router.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, ""))
+	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, ""))
+
+	//Relay to microservices
+	router.GET("/secure/:token/general/*api", makeAuthedRelay(relayHandler, "http://localhost:91"))
+	router.GET("/secure/:token/ngfileserver/*api", makeAuthedRelay(ngfileserverRelayHandler, "http://localhost:92"))
+	router.PUT("/secure/:token/ngfileserver/*api", makeAuthedRelay(ngfileserverPutRelayHandler, "http://localhost:92"))
 	router.POST("/secure/:token/general/*api", makeAuthedRelay(relayPostHandler, "http://localhost:91"))
 	router.POST("/secure/:token/quester/*api", makeAuthedRelay(relayPostHandler, "http://localhost:93/quester"))
 	router.GET("/secure/:token/quester/*api", makeAuthedRelay(ngfileserverRelayParameterisedHandler, "http://localhost:93/quester"))
@@ -231,7 +212,7 @@ func idToSessionToken(id string) string {
 }
 
 //Show the user their revocable token
-func tokenShowHandler(c *gin.Context, blah string, token string) {
+func tokenShowHandler(c *gin.Context, blah string, token, target string) {
 	sessionID := c.Query("id")
 	displayPage(c, sessionID, "files/showToken.html")
 }
@@ -264,7 +245,7 @@ func setupNewUser(c *gin.Context, foreignID string, token string) string {
 	return user.Token
 }
 
-func newTokenHandler(c *gin.Context, id string, token string) {
+func newTokenHandler(c *gin.Context, id string, token, target string) {
 	sessionToken := newToken(id)
 	displayPage(c, sessionToken, "files/showToken.html")
 }
@@ -330,7 +311,7 @@ func AddAuthToRequest(req *http.Request, id, token, microserviceBaseUrl, baseUrl
 }
 
 // Redirect to default microservice, using GET
-func relayHandler(c *gin.Context, id, token string) {
+func relayHandler(c *gin.Context, id, token, target string) {
 
 	api := c.Param("api")
 
@@ -346,7 +327,7 @@ func relayHandler(c *gin.Context, id, token string) {
 	}
 
 	//TODO make this configurable from a file
-	req, err := http.NewRequest("GET", "http://localhost:91"+api+params, nil)
+	req, err := http.NewRequest("GET", target+api+params, nil)
 
 	AddAuthToRequest(req, id, token, completeBaseUrl, baseUrl)
 	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.RequestURI)
@@ -634,7 +615,7 @@ func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token, target str
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
 }
 
-func ngfileserverRelayHandler(c *gin.Context, id, token string) {
+func ngfileserverRelayHandler(c *gin.Context, id, token, target string) {
 
 	api := c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
@@ -643,7 +624,7 @@ func ngfileserverRelayHandler(c *gin.Context, id, token string) {
 
 	client := &http.Client{}
 
-	req, err := http.NewRequest("GET", "http://localhost:92"+api, nil)
+	req, err := http.NewRequest("GET", target+api, nil)
 
 	req.Header.Add("authentigate-id", id)
 	req.Header.Add("authentigate-token", token)
@@ -656,7 +637,7 @@ func ngfileserverRelayHandler(c *gin.Context, id, token string) {
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
 }
 
-func ngfileserverPutRelayHandler(c *gin.Context, id, token string) {
+func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
 
 	api := c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
@@ -665,7 +646,7 @@ func ngfileserverPutRelayHandler(c *gin.Context, id, token string) {
 
 	client := &http.Client{}
 
-	req, err := http.NewRequest("PUT", "http://localhost:92"+api, nil)
+	req, err := http.NewRequest("PUT", target+api, nil)
 
 	req.Header.Add("authentigate-id", id)
 	req.Header.Add("authentigate-token", token)
