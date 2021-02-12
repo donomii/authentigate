@@ -80,17 +80,22 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), tar
 		}()
 
 		token, err := c.Cookie("AuthentigateSessionToken")
+		useCookie := true
 		if err == nil {
 			log.Println("Found authentigate cookie")
 		} else {
 			log.Println("Cookie not found, using token")
 			log.Println(err)
 			token = c.Param("token")
+			useCookie = false
 		}
 		id := sessionTokenToId(token)
 		if id == "" {
 			log.Printf("Login failure for token: '%v'", token)
 			frontPageHandler(c)
+		}
+		if useCookie {
+			token = "c"
 		}
 		handlerFunc(c, id, token, target)
 
