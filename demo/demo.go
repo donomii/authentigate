@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	"net/http"
 	"net/rpc"
 )
@@ -93,9 +92,6 @@ func main() {
 	shop := new(Shop)
 	rpc.Register(shop)
 	rpc.HandleHTTP()
-	l, e := net.Listen("tcp", ":1234")
-	if e != nil {
-		log.Fatal("listen error:", e)
-	}
-	go http.Serve(l, nil)
+	log.Fatal(http.ListenAndServe(":8080", nil))
+	fmt.Println("Server finished")
 }
