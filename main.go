@@ -103,7 +103,22 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), tar
 
 }
 
+type Redirect struct {
+	From, To, Tipe string
+}
+type Config struct {
+	Redirects []Redirect
+	Port      int
+	BaseUrl   string
+	HostNames []string
+	LogFile   string
+}
+
 func main() {
+	config := LoadConfig("config.json")
+	if config.BaseUrl != "" {
+		baseUrl = config.BaseUrl
+	}
 	var err error
 	var f *os.File
 	f, err = os.Create("accessLog")
@@ -119,7 +134,7 @@ func main() {
 	defer shutdownFunc()
 
 	if develop {
-		baseUrl = "http://localhost/secure/"
+		baseUrl = "http://localhost:80/secure/"
 	}
 
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -130,14 +145,13 @@ func main() {
 	router.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, ""))
 	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, ""))
 
-	//Relay to microservices
-	router.GET("/secure/:token/general/*api", makeAuthedRelay(relayGetHandler, "http://localhost:91"))
-	router.GET("/secure/:token/ngfileserver/*api", makeAuthedRelay(ngfileserverRelayHandler, "http://localhost:92"))
-	router.PUT("/secure/:token/ngfileserver/*api", makeAuthedRelay(ngfileserverPutRelayHandler, "http://localhost:92"))
-	router.POST("/secure/:token/general/*api", makeAuthedRelay(relayPostHandler, "http://localhost:91"))
-	router.POST("/secure/:token/quester/*api", makeAuthedRelay(relayPostHandler, "http://localhost:93/quester"))
-	router.GET("/secure/:token/quester/*api", makeAuthedRelay(relayGetHandler, "http://localhost:93/quester"))
-	router.GET("/secure/:token/entirety/*api", makeAuthedRelay(relayGetHandler, "http://localhost:94"))
+	for _, relay := range config.Redirects {
+		if relay.Tipe == "GET" {
+			router.GET(relay.From, makeAuthedRelay(relayGetHandler, relay.To))
+		} else {
+			router.POST(relay.From, makeAuthedRelay(relayPostHandler, relay.To))
+		}
+	}
 
 	//These are required to handle oauth2
 	router.GET("/auth/:provider", redirectHandler)
@@ -152,7 +166,7 @@ func main() {
 	if develop {
 		router.Run("127.0.0.1:80")
 	} else {
-		log.Fatal(autotls.Run(router, "entirety.praeceptamachinae.com", "garden.praeceptamachinae.com", "demo.praeceptamachinae.com"))
+		log.Fatal(autotls.Run(router, config.HostNames...))
 	}
 }
 
@@ -242,12 +256,6 @@ func displayLoginPage(c *gin.Context, id string, sessionToken string) {
 		"c",
 		"files/loginSuccessful.html",
 		map[string]string{"AuthentigateSessionToken": sessionToken})
-}
-
-//Save user details
-func SaveUser(user *userData_t) {
-	b.Users.Set(user.Id, *user)
-	log.Printf("Saved user %+v\n", user)
 }
 
 func setupNewUser(c *gin.Context, foreignID string, token string) string {
@@ -360,8 +368,9 @@ func relayGetHandler(c *gin.Context, id, token, target string) {
 	AddAuthToRequest(req, id, token, completeBaseUrl, baseUrl)
 	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.RequestURI)
 	resp, err := client.Do(req)
-	respData, err := ioutil.ReadAll(resp.Body)
 	check(err)
+	respData, err := ioutil.ReadAll(resp.Body)
+
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Writer.Write(respData)
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
