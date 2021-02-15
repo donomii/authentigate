@@ -1,0 +1,22 @@
+{
+	"Redirects": [
+		{
+			"From": "/secure/:token/shoppr/*api",
+			"To": "http://localhost:98/shoppr",
+			"Tipe": "GET"
+		},
+		{
+			"From": "/secure/:token/fe/*api",
+			"To": "http://localhost:99/fe",
+			"Tipe": "GET"
+		}
+	],
+	"Port": 97,
+	"BaseUrl": "https://entirety.praeceptamachinae.com/",
+	"HostNames": [
+		"entirety.praeceptamachinae.com",
+		"garden.praeceptamachinae.com",
+		"demo.praeceptamachinae.com"
+	],
+	"LogFile": "accessLog"
+}
