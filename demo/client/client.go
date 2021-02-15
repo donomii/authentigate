@@ -146,7 +146,7 @@ func checkout(c *gin.Context, id string, token string) {
 	body = body + "<p>Total: " + fmt.Sprintf("%v", total) + "</p>"
 
 	body = body + `<h2>Coupon</h2>
-	<p>Get a discount <a href=coupon>coupon</p>
+	<p>Get a discount <a href=coupon>coupon</a></p>
 	<form action="purchase">
   <label for="fname">Coupon</label>
   <input type="text" id="coupon" name="coupon"><br><br>
