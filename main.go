@@ -131,6 +131,8 @@ func main() {
 	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, ""))
 
 	//Relay to microservices
+	router.GET("/secure/:token/shoppr/*api", makeAuthedRelay(relayGetHandler, "http://localhost:98/shoppr"))
+	router.GET("/secure/:token/fe/*api", makeAuthedRelay(relayGetHandler, "http://localhost:99/fe"))
 	router.GET("/secure/:token/general/*api", makeAuthedRelay(relayGetHandler, "http://localhost:91"))
 	router.GET("/secure/:token/ngfileserver/*api", makeAuthedRelay(ngfileserverRelayHandler, "http://localhost:92"))
 	router.PUT("/secure/:token/ngfileserver/*api", makeAuthedRelay(ngfileserverPutRelayHandler, "http://localhost:92"))
@@ -160,13 +162,18 @@ func main() {
 func frontPageHandler(c *gin.Context) {
 	extra := ""
 	if develop {
-		extra = "<a href='/develop/auth/callback'><button>Login with no password</button></a><br>"
+		extra = "<hr/><a href='/develop/auth/callback'><button>Login with no password</button></a><br>"
 	}
 	c.Writer.Write([]byte("<html><head><title>Authentigate</title></head><body>" +
 		"<a href='/auth/github'><button>Login with GitHub</button></a><br>" +
-		"<a href='/auth/linkedin'><button>Login with LinkedIn</button></a><br>" +
+		//"<a href='/auth/linkedin'><button>Login with LinkedIn</button></a><br>" +
 		"<a href='/auth/google'><button>Login with Google</button></a><br>" +
 		"<a href='/auth/slack'><button>Login with Slack</button></a><br>" +
+		"<hr/>"+
+		"<a href='/auth/github'><button>Sign up with GitHub</button></a><br>" +
+		//"<a href='/auth/linkedin'><button>Sign up with LinkedIn</button></a><br>" +
+		"<a href='/auth/google'><button>Sign up with Google</button></a><br>" +
+		"<a href='/auth/slack'><button>Sign up with Slack</button></a><br>" +
 		extra +
 		"</body></html>"))
 	/*
@@ -358,7 +365,7 @@ func relayGetHandler(c *gin.Context, id, token, target string) {
 	req, err := http.NewRequest("GET", target+api+params, nil)
 
 	AddAuthToRequest(req, id, token, completeBaseUrl, baseUrl)
-	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.RequestURI)
+	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
 	resp, err := client.Do(req)
 	respData, err := ioutil.ReadAll(resp.Body)
 	check(err)
