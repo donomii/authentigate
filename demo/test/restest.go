@@ -140,7 +140,7 @@ func dumpResponse(resp *resty.Response) {
 
 	var basket map[string]int
 	json.Unmarshal(resp.Body(), &basket)
-	fmt.Print("Basket: %v\n", basket)
+	fmt.Printf("Basket: %v\n", basket)
 }
 func main() {
 	testBasket()
