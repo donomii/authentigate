@@ -93,6 +93,15 @@ func shop(c *gin.Context, id string, token string) {
 	c.Writer.Write([]byte(wrapPage("Shop", body)))
 }
 
+func coupon(c *gin.Context, id string, token string) {
+	var coupon Coupon
+	rest(c, shopService, "createCoupon?duration=1000&discount=0.7&target=orange", &coupon)
+
+	body := "<h2>Coupon</h2>"
+	body = body + "<p>Use code " + coupon.Name + " for a " + fmt.Sprintf("%v", coupon.Discount) + " on " + coupon.Target + "</p>"
+	c.Writer.Write([]byte(wrapPage("Shop", body)))
+}
+
 func rest(c *gin.Context, base, endpoint string, data interface{}) *resty.Response {
 	client := resty.New()
 	r := client.R()
@@ -137,7 +146,7 @@ func checkout(c *gin.Context, id string, token string) {
 	body = body + "<p>Total: " + fmt.Sprintf("%v", total) + "</p>"
 
 	body = body + `<h2>Coupon</h2>
-	
+	<p>Get a discount <a href=coupon>coupon</p>
 	<form action="purchase">
   <label for="fname">Coupon</label>
   <input type="text" id="coupon" name="coupon"><br><br>
