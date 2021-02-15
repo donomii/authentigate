@@ -190,4 +190,5 @@ func serveDemo(router *gin.Engine, prefix string) {
 	router.GET(prefix+"checkout", makeAuthed(checkout))
 	router.GET(prefix+"purchase", makeAuthed(purchase))
 	router.GET(prefix+"addItem", makeAuthed(addItem))
+	router.GET(prefix+"coupon", makeAuthed(coupon))
 }
