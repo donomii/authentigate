@@ -366,7 +366,7 @@ func relayGetHandler(c *gin.Context, id, token, target string) {
 	req, err := http.NewRequest("GET", target+api+params, nil)
 
 	AddAuthToRequest(req, id, token, completeBaseUrl, baseUrl)
-	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.RequestURI)
+	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
 	resp, err := client.Do(req)
 	check(err)
 	respData, err := ioutil.ReadAll(resp.Body)
