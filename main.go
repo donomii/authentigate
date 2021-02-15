@@ -174,13 +174,18 @@ func main() {
 func frontPageHandler(c *gin.Context) {
 	extra := ""
 	if develop {
-		extra = "<a href='/develop/auth/callback'><button>Login with no password</button></a><br>"
+		extra = "<hr/><a href='/develop/auth/callback'><button>Login with no password</button></a><br>"
 	}
 	c.Writer.Write([]byte("<html><head><title>Authentigate</title></head><body>" +
 		"<a href='/auth/github'><button>Login with GitHub</button></a><br>" +
-		"<a href='/auth/linkedin'><button>Login with LinkedIn</button></a><br>" +
+		//"<a href='/auth/linkedin'><button>Login with LinkedIn</button></a><br>" +
 		"<a href='/auth/google'><button>Login with Google</button></a><br>" +
 		"<a href='/auth/slack'><button>Login with Slack</button></a><br>" +
+		"<hr/>"+
+		"<a href='/auth/github'><button>Sign up with GitHub</button></a><br>" +
+		//"<a href='/auth/linkedin'><button>Sign up with LinkedIn</button></a><br>" +
+		"<a href='/auth/google'><button>Sign up with Google</button></a><br>" +
+		"<a href='/auth/slack'><button>Sign up with Slack</button></a><br>" +
 		extra +
 		"</body></html>"))
 	/*
