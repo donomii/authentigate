@@ -1,0 +1,172 @@
+definitions:
+  Coupon:
+    description: A discount coupon
+    properties:
+      Discount:
+        format: double
+        type: number
+      Expiry:
+        format: date-time
+        type: string
+      Name:
+        type: string
+      Target:
+        type: string
+    type: object
+    x-go-package: github.com/donomii/authentigate/demo
+  Shop:
+    description: Holds shop data, including coupons and prices
+    properties:
+      Coupons:
+        additionalProperties:
+          $ref: '#/definitions/Coupon'
+        type: object
+      Prices:
+        additionalProperties:
+          format: double
+          type: number
+        type: object
+    type: object
+    x-go-package: github.com/donomii/authentigate/demo
+  User:
+    description: Stores all user related data
+    properties:
+      Basket:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      Orders:
+        items:
+          additionalProperties:
+            format: double
+            type: number
+          type: object
+        type: array
+      UsedCoupons:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      name:
+        type: string
+        x-go-name: Name
+    type: object
+    x-go-package: github.com/donomii/authentigate/demo
+paths:
+  /shoppr/api/v1/addItem:
+    get:
+      operationId: addItem
+      parameters:
+      - in: query
+        name: Item
+        type: string
+      - format: int64
+        in: query
+        name: Amount
+        type: integer
+      responses:
+        "200":
+          description: ""
+      summary: Add item to basket.
+      tags:
+      - basket
+  /shoppr/api/v1/basket:
+    get:
+      operationId: basket
+      responses:
+        "200":
+          $ref: '#/responses/map%5Bstring%5Dint'
+      summary: Show contents of basket.
+      tags:
+      - basket
+  /shoppr/api/v1/checkout:
+    get:
+      operationId: checkout
+      responses:
+        "200":
+          $ref: '#/responses/map%5Bstring%5Dfloat64'
+      summary: Calculate checkout details.
+      tags:
+      - basket
+  /shoppr/api/v1/createCoupon:
+    get:
+      operationId: createCoupon
+      parameters:
+      - format: int64
+        in: query
+        name: Duration
+        type: integer
+      - format: double
+        in: query
+        name: Discount
+        type: number
+      - in: query
+        name: Target
+        type: string
+      responses:
+        "200":
+          description: Coupon
+          schema:
+            $ref: '#/definitions/Coupon'
+      summary: Create a new coupon for given duration, discount and target item.
+      tags:
+      - coupon
+  /shoppr/api/v1/deleteCoupon:
+    get:
+      operationId: deleteCoupon
+      responses:
+        "200":
+          description: ""
+      summary: Delete a coupon.
+      tags:
+      - coupon
+  /shoppr/api/v1/listCoupons:
+    get:
+      operationId: listCoupons
+      responses:
+        "200":
+          description: Coupon
+          schema:
+            items:
+              $ref: '#/definitions/Coupon'
+            type: array
+      summary: List all coupons.
+      tags:
+      - coupon
+  /shoppr/api/v1/listItems:
+    get:
+      operationId: listItems
+      responses:
+        "200":
+          description: Coupon
+          schema:
+            items:
+              $ref: '#/definitions/Coupon'
+            type: array
+      summary: List all coupons.
+      tags:
+      - shop
+  /shoppr/api/v1/purchase:
+    get:
+      operationId: purchase
+      parameters:
+      - in: query
+        name: Coupon
+        type: string
+      responses:
+        "200":
+          $ref: '#/responses/map%5Bstring%5Dfloat64'
+      summary: Purchase basket.
+      tags:
+      - basket
+  /shoppr/api/v1/reset:
+    get:
+      operationId: reset
+      responses:
+        "200":
+          description: ""
+      summary: Reset all data for testing.
+      tags:
+      - reset
+swagger: "2.0"

@@ -2,12 +2,12 @@
 	"Redirects": [
 		{
 			"From": "/secure/:token/shoppr/*api",
-			"To": "http://localhost:98/shoppr",
+			"To": "http://localhost:98/shoppr/api/v1",
 			"Tipe": "GET"
 		},
 		{
 			"From": "/secure/:token/fe/*api",
-			"To": "http://localhost:99/fe",
+			"To": "http://localhost:99/fe/api/v1",
 			"Tipe": "GET"
 		}
 	],
