@@ -2,46 +2,24 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/swaggo/swag/example/celler/httputil"
 )
 
-// @title Shop Demo
-// @version 1.0
-// @description Example fruit store
-// @termsOfService https://www.gnu.org/licenses/agpl-3.0.en.html
+// swagger:route GET /shoppr/api/v1/createCoupon coupon createCoupon
+// Create a new coupon for given duration, discount and target item.
+// responses:
+//   200: Coupon
 
-// @contact.name Jeremy Price
-// @contact.url http://praeceptamachinae.com
-// @contact.email jeremy@praeceptamachinae.com
-
-// @license.name Affero GPL
-// @license.url https://www.gnu.org/licenses/agpl-3.0.en.html
-
-// @host https://entirety.praeceptamachinae.com/
-// @BasePath /api/v1
-
-//
-
-// createCoupon godoc
-// @Summary Create a new coupon
-// @Description Create a new coupon
-// @Tags coupon
-// @Accept  json
-// @Produce  json
-// @Param duration query int  false "Seconds that coupon is valid for"
-// @Param discount query float64  false "Percentage discount"
-// @Param target query string  false "Discounted item"
-// @Success 200 {object} string
-// @Failure 400 {object} httputil.HTTPError
-// @Failure 404 {object} httputil.HTTPError
-// @Failure 500 {object} httputil.HTTPError
+// A coupon
+// swagger:response Coupon
 func createCoupon(c *gin.Context, id string, token string) {
 	duration_s := c.Query("duration")
 	discount, err := strconv.ParseFloat(c.Query("discount"), 64)
 	target := c.Query("target")
-
 	if target == "" {
 		target = "orange"
 	}
@@ -51,22 +29,50 @@ func createCoupon(c *gin.Context, id string, token string) {
 	}
 	details := doAddCoupon(duration, discount, target)
 
-	json.NewEncoder(c.Writer).Encode(details)
+	//json.NewEncoder(c.Writer).Encode(details)
+	c.JSON(http.StatusOK, details)
 }
 
+// swagger:route GET /shoppr/api/v1/listCoupons coupon listCoupons
+// List all coupons.
+// responses:
+//   200: []Coupon
+// List of coupons
+// swagger:response []Coupon
 func listCoupons(c *gin.Context, id string, token string) {
 	json.NewEncoder(c.Writer).Encode(LoadStore().Coupons)
 }
 
+// swagger:route GET /shoppr/api/v1/listItems shop listItems
+// List all coupons.
+// responses:
+//   200: []Coupon
+
+// List of coupons
+// swagger:response []Coupon
 func listItems(c *gin.Context, id string, token string) {
 	json.NewEncoder(c.Writer).Encode(LoadStore().Prices)
 }
 
+// swagger:route GET /shoppr/api/v1/deleteCoupon coupon deleteCoupon
+// Delete a coupon.
+// responses:
+//   200:
+
+// no response
+// swagger:response
 func deleteCoupon(c *gin.Context, id string, token string) {
 	coupon, _ := c.GetQuery("coupon")
 	delete(LoadStore().Coupons, coupon)
 }
 
+// swagger:route GET /shoppr/api/v1/addItem basket addItem
+// Add item to basket.
+// responses:
+//   200:
+
+// noresponse
+// swagger:response
 func addItem(c *gin.Context, id string, token string) {
 	item := c.Query("item")
 	amountText := c.Query("amount")
@@ -80,6 +86,13 @@ func addItem(c *gin.Context, id string, token string) {
 	SaveUser(id, user)
 }
 
+// swagger:route GET /shoppr/api/v1/basket basket basket
+// Show contents of basket.
+// responses:
+//   200: map[string]int
+
+// map of items to amount
+// swagger:response map[string]int
 func basket(c *gin.Context, id string, token string) {
 	basket := LoadUser(id).Basket
 	newBasket := recalculateBasket(basket)
@@ -87,6 +100,13 @@ func basket(c *gin.Context, id string, token string) {
 	json.NewEncoder(c.Writer).Encode(newBasket)
 }
 
+// swagger:route GET /shoppr/api/v1/reset reset reset
+// Reset all data for testing.
+// responses:
+//   200:
+
+// noresponse
+// swagger:response
 func reset(c *gin.Context, id string, token string) {
 	blankUser := User{Name: id, Basket: map[string]int{}, UsedCoupons: map[string]int{}, Orders: []map[string]float64{}}
 	SaveUser(id, &blankUser)
@@ -94,28 +114,29 @@ func reset(c *gin.Context, id string, token string) {
 	SaveStore(&blankShop)
 }
 
+// swagger:route GET /shoppr/api/v1/checkout basket checkout
+// Calculate checkout details.
+// responses:
+//   200: map[string]float64
+
+// A map of item to total price
+// swagger:response map[string]float64
 func checkout(c *gin.Context, id string, token string) {
-	coupon, _ := c.GetQuery("coupon")
 
 	user := LoadUser(id)
 	basket := recalculateBasket(user.Basket)
-	order := calculateOrder(basket, coupon, user)
+	order := calculateOrder(basket, "", user)
 
 	json.NewEncoder(c.Writer).Encode(order)
 }
 
-// purchase godoc
-// @Summary Complete checkout and purchase goods
-// @Description Purchase items in basket
-// @Tags purchase
-// @Accept  json
-// @Produce  json
-// @Param coupon query string  false "Apply discont coupon"\
-// @Success 200 {object} map[string]float64
-// @Failure 400 {object} httputil.HTTPError
-// @Failure 404 {object} httputil.HTTPError
-// @Failure 500 {object} httputil.HTTPError
+// swagger:route GET /shoppr/api/v1/purchase basket purchase
+// Purchase basket.
+// responses:
+//   200: map[string]float64
 
+// A map of item to total price
+// swagger:response map[string]float64
 func purchase(c *gin.Context, id string, token string) {
 	coupon, _ := c.GetQuery("coupon")
 
