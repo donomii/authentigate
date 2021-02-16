@@ -11,7 +11,7 @@ import (
 	"github.com/go-resty/resty"
 )
 
-var shopService string = "http://localhost:98/shoppr/"
+var shopService string = "http://localhost:98/shoppr/api/v1/"
 
 type Coupon struct {
 	Name     string
