@@ -75,7 +75,6 @@ func shop(c *gin.Context, id string, token string) {
 	var prices map[string]float64
 	resp := rest(c, shopService, "listItems", &prices)
 
-	body := "<a href=checkout>Go to checkout</a>"
 	for k, v := range prices {
 		body = body + fmt.Sprintf("<p><a href=\"addItem?item="+k+"\">%v</a> ... $%v</p>\n", k, v)
 	}
@@ -90,6 +89,7 @@ func shop(c *gin.Context, id string, token string) {
 		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", k, v)
 	}
 
+	body := "<h2><a href=checkout>Go to checkout</a></h2>"
 	c.Writer.Write([]byte(wrapPage("Shop", body)))
 }
 
