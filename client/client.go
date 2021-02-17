@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-resty/resty"
+	"gopkg.in/resty.v1"
 )
 
-var shopService string = "http://localhost:98/shoppr/"
+var shopService string = "http://localhost:98/shoppr/api/v1/"
 
 type Coupon struct {
 	Name     string
@@ -175,6 +175,7 @@ func purchase(c *gin.Context, id string, token string) {
 	}
 	body = body + "<p>Total: " + fmt.Sprintf("%v", total) + "</p>"
 	body = body + "<h2>Purchase confirmed</h2>"
+	body = body + "<a href=shop>Back to start</a>"
 	c.Writer.Write([]byte(wrapPage("Purchase", body)))
 }
 

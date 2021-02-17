@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/swaggo/swag/example/celler/httputil"
 )
 
 // swagger:route GET /shoppr/api/v1/createCoupon coupon createCoupon

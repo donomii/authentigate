@@ -8,7 +8,7 @@ import (
 	"github.com/go-resty/resty"
 )
 
-var base string = "http://localhost:98/shoppr/"
+var base string = "http://localhost:98/shoppr/api/v1/"
 
 type Coupon struct {
 	Name     string
@@ -19,7 +19,11 @@ type Coupon struct {
 
 func rest(base, endpoint string, data interface{}) *resty.Response {
 	client := resty.New()
-	resp, _ := client.R().Get(base + endpoint)
+	resp, err := client.R().Get(base + endpoint)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
 	if data != nil {
 		json.Unmarshal(resp.Body(), data)
 	}
@@ -38,6 +42,7 @@ func testAddItem() {
 		fmt.Println("AddItem pass!")
 	} else {
 		fmt.Println("AddItem fail!")
+		fmt.Printf("%+v\n", basket)
 	}
 }
 
@@ -63,12 +68,13 @@ func testBasketSet() {
 	rest(base, "reset", nil)
 	rest(base, "addItem?item=pear&amount=9", nil)
 	rest(base, "addItem?item=banana&amount=5", nil)
-	rest(base, "basket", &basket)
+	resp:=rest(base, "basket", &basket)
 
 	if basket["fruit combo set"] == 2 && basket["pear"] == 1 && basket["banana"] == 1 {
 		fmt.Println("Basket set pass!")
 	} else {
 		fmt.Println("Basket set fail!")
+		dumpResponse(resp)
 	}
 }
 
@@ -76,12 +82,13 @@ func testCheckout() {
 	var order map[string]float64
 	rest(base, "shoppr/reset", nil)
 	rest(base, "addItem?item=orange&amount=3", nil)
-	rest(base, "checkout", &order)
+	resp:=rest(base, "checkout", &order)
 
 	if order["orange"] == 12.0 {
 		fmt.Println("Checkout pass!")
 	} else {
 		fmt.Println("Checkout fail!")
+		dumpResponse(resp)
 	}
 }
 
@@ -89,40 +96,36 @@ func testAppleDiscount() {
 	var order map[string]float64
 	rest(base, "reset", nil)
 	rest(base, "addItem?item=apple&amount=7", nil)
-	rest(base, "checkout", &order)
+	resp:=rest(base, "checkout", &order)
 
 	if order["apple"] == 7.0*0.9 {
 		fmt.Println("Apple discount pass!")
 	} else {
 		fmt.Println("Apple discount fail!")
+		dumpResponse(resp)
 	}
 }
 
 func testBasket() {
-	client := resty.New()
-
-	resp, _ := client.R().Get("http://localhost:98/shoppr/reset")
-	resp, _ = client.R().Get("http://localhost:98/shoppr/basket")
-
 	var basket map[string]int
-	err := json.Unmarshal(resp.Body(), &basket)
-	if err == nil {
+	rest(base, "reset", nil)
+	resp:=rest(base, "basket", &basket)
+
+	if resp != nil {
 		fmt.Println("Basket pass!")
 	} else {
 		fmt.Println("Basket fail!")
+		dumpResponse(resp)
 	}
 }
 
 func testSetDiscount() {
-	client := resty.New()
-
-	resp, _ := client.R().Get("http://localhost:98/shoppr/reset")
-	resp, _ = client.R().Get("http://localhost:98/shoppr/addItem?item=pear&amount=9")
-	resp, _ = client.R().Get("http://localhost:98/shoppr/addItem?item=banana&amount=5")
-	resp, _ = client.R().Get("http://localhost:98/shoppr/checkout")
-
 	var order map[string]float64
-	json.Unmarshal(resp.Body(), &order)
+	rest(base, "reset", nil)
+	rest(base, "addItem?item=pear&amount=9", nil)
+	rest(base, "addItem?item=banana&amount=5", nil)
+	resp:=rest(base, "checkout", &order)
+
 	if order["fruit combo set"] == 2.0*18.0*0.7 && order["pear"] == 3.0 && order["banana"] == 2.0 {
 		fmt.Println("Set discount pass!")
 	} else {
