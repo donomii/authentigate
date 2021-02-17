@@ -150,6 +150,16 @@ func checkout(c *gin.Context, id string, token string) {
 	<form action="purchase">
   <label for="fname">Coupon</label>
   <input type="text" id="coupon" name="coupon"><br><br>
+
+<label for="fname">Credit Card</label>
+  <input type="text" id="ccnumber" name="ccnumber"><br><br>
+
+<label for="fname">Name</label>
+  <input type="text" id="ccname" name="ccname"><br><br>
+
+<label for="fname">Expiry</label>
+  <input type="text" id="ccexpiry" name="ccexpiry"><br><br>
+
   <input type="submit" value="Submit">
 </form>
 `

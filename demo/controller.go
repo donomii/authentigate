@@ -32,6 +32,29 @@ func createCoupon(c *gin.Context, id string, token string) {
 	c.JSON(http.StatusOK, details)
 }
 
+// swagger:route GET /shoppr/api/v1/updateCoupon coupon createCoupon
+// Update an existing coupon with given duration, discount and target item.
+// responses:
+//   200: Coupon
+
+// A coupon
+// swagger:response Coupon
+func updateCoupon(c *gin.Context, id string, token string) {
+	duration_s := c.Query("duration")
+	discount, err := strconv.ParseFloat(c.Query("discount"), 64)
+	target := c.Query("target")
+	if target == "" {
+		target = "orange"
+	}
+	duration, err := strconv.Atoi(duration_s)
+	if duration_s == "" || err != nil {
+		duration = 10
+	}
+	details := doAddCoupon(duration, discount, target)
+
+	c.JSON(http.StatusOK, details)
+}
+
 // swagger:route GET /shoppr/api/v1/listCoupons coupon listCoupons
 // List all coupons.
 // responses:
@@ -96,7 +119,7 @@ func basket(c *gin.Context, id string, token string) {
 	basket := LoadUser(id).Basket
 	newBasket := recalculateBasket(basket)
 
-	json.NewEncoder(c.Writer).Encode(newBasket)
+	c.JSON(http.StatusOK, newBasket)
 }
 
 // swagger:route GET /shoppr/api/v1/reset reset reset
@@ -129,6 +152,8 @@ func checkout(c *gin.Context, id string, token string) {
 	json.NewEncoder(c.Writer).Encode(order)
 }
 
+func checkPayment(ccname, ccnumber, ccexpiry string) {}
+
 // swagger:route GET /shoppr/api/v1/purchase basket purchase
 // Purchase basket.
 // responses:
@@ -138,10 +163,15 @@ func checkout(c *gin.Context, id string, token string) {
 // swagger:response map[string]float64
 func purchase(c *gin.Context, id string, token string) {
 	coupon, _ := c.GetQuery("coupon")
+	ccname, _ := c.GetQuery("ccname")
+	ccnumber, _ := c.GetQuery("ccnumber")
+	ccexpiry, _ := c.GetQuery("ccexpiry")
 
 	user := LoadUser(id)
 	basket := recalculateBasket(user.Basket)
 	order := calculateOrder(basket, coupon, user)
+	//Valid payment here
+	checkPayment(ccname, ccnumber, ccexpiry)
 	user.Orders = append(user.Orders, order)
 	user.Basket = map[string]int{}
 	SaveUser(id, user)

@@ -15,9 +15,10 @@ type addItemRequest struct {
 
 //swagger:parameters purchase
 type purchaseRequest struct {
-	Coupon string
+	Coupon, CCname, CCnumber, CCexpiry string
 }
 
+//swagger:parameters deleteCoupon
 type deleteCouponRequest struct {
 	Coupon string
 }
