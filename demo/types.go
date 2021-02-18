@@ -1,6 +1,6 @@
 package main
 
-//swagger:parameters createCoupon
+//swagger:parameters createCoupon updateCoupon
 type createCouponRequest struct {
 	Duration int
 	Discount float64

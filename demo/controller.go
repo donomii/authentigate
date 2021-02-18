@@ -32,7 +32,7 @@ func createCoupon(c *gin.Context, id string, token string) {
 	c.JSON(http.StatusOK, details)
 }
 
-// swagger:route GET /shoppr/api/v1/updateCoupon coupon createCoupon
+// swagger:route GET /shoppr/api/v1/updateCoupon coupon updateCoupon
 // Update an existing coupon with given duration, discount and target item.
 // responses:
 //   200: Coupon
