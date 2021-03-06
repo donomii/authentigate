@@ -67,7 +67,7 @@ func format_clf(c *gin.Context, id, responseCode, responseSize string) string {
 
 //Check that the revocable session token is valid, load the user details, and call the provided handler for the url
 //Or, redirect them to the login page
-func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), target string) func(c *gin.Context) {
+func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), relay Redirect) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -94,10 +94,10 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), tar
 			log.Printf("Login failure for token: '%v'", token)
 			frontPageHandler(c)
 		} else {
-			if useCookie {
-				token = "c"
-			}
-			handlerFunc(c, id, token, target)
+			//if useCookie {
+				//token = "c"
+			//}
+			handlerFunc(c, id, token, relay, useCookie)
 		}
 	}
 
@@ -147,9 +147,9 @@ func main() {
 
 	for _, relay := range config.Redirects {
 		if relay.Tipe == "GET" {
-			router.GET(relay.From, makeAuthedRelay(relayGetHandler, relay.To))
+			router.GET(relay.From, makeAuthedRelay(relayGetHandler, relay))
 		} else {
-			router.POST(relay.From, makeAuthedRelay(relayPostHandler, relay.To))
+			router.POST(relay.From, makeAuthedRelay(relayPostHandler, relay))
 		}
 	}
 
@@ -299,13 +299,8 @@ func displayPage(c *gin.Context, token, filename string, cookies map[string]stri
 	c.Writer.Write([]byte(template))
 }
 
-//Build a  complete url for this resource
-func MakeExternalPrefix(baseUrl, sessionToken string) string {
-	return fmt.Sprintf("%v%v/", baseUrl, sessionToken)
-}
-
 // Redirect to default microservice, using POST
-func relayPostHandler(c *gin.Context, id, token, target string) {
+func relayPostHandler(c *gin.Context, id, token string, relay Redirect, useCookie bool) {
 
 	api := c.Param("api")
 	log.Printf("POST api : %v with id %v\n", api, id)
@@ -319,7 +314,7 @@ func relayPostHandler(c *gin.Context, id, token, target string) {
 
 	req, err := http.NewRequest("POST", target+api+params, nil)
 
-	AddAuthToRequest(req, id, token, MakeExternalPrefix(baseUrl, token), fmt.Sprintf("%v%v/", baseUrl, token))
+	AddAuthToRequest(req, id, token, baseUrl, relay)
 
 	//Copy the bare minimum needed for a post request
 	CopyHeaders := []string{"Content-Type", "Content-Length"}
@@ -344,15 +339,19 @@ func relayPostHandler(c *gin.Context, id, token, target string) {
 }
 
 //Not very functional, but it will do for now
-func AddAuthToRequest(req *http.Request, id, token, microserviceBaseUrl, baseUrl string) {
+func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay Redirect) {
+	microserviceBaseUrl := fmt.Sprintf("%vc/%v/", baseUrl, relay.Name)
+	microserviceTokenUrl := fmt.Sprintf("%v%v/%v/", baseUrl, token, relay.Name)
+	siteTopUrl := fmt.Sprintf("%v%v/", baseUrl, token)
 	req.Header.Add("authentigate-id", id)
 	req.Header.Add("authentigate-token", token)
 	req.Header.Add("authentigate-base-url", microserviceBaseUrl)
-	req.Header.Add("authentigate-top-url", fmt.Sprintf("%v%v/", baseUrl, token))
+	req.Header.Add("authentigate-base-token-url", microservicetokenUrl)
+	req.Header.Add("authentigate-top-url", siteTopUrl)
 }
 
 // Redirect to default microservice, using GET
-func relayGetHandler(c *gin.Context, id, token, target string) {
+func relayGetHandler(c *gin.Context, id, token string, relay Redirect) {
 
 	api := c.Param("api")
 
@@ -370,7 +369,7 @@ func relayGetHandler(c *gin.Context, id, token, target string) {
 	//TODO make this configurable from a file
 	req, err := http.NewRequest("GET", target+api+params, nil)
 
-	AddAuthToRequest(req, id, token, completeBaseUrl, baseUrl)
+	AddAuthToRequest(req, id, token, baseUrl, relay)
 	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
 	resp, err := client.Do(req)
 	check(err)
@@ -632,7 +631,7 @@ func developCallbackHandler(c *gin.Context) {
 //
 //Eventually, combine this with the rest of the code using configuration files
 
-func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token, target string) {
+func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, relay Redirect) {
 	c.Header("Cache-Control", "no-cache,no-store")
 	api := c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
@@ -647,7 +646,7 @@ func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token, target str
 	}
 	req, err := http.NewRequest("GET", target+api+params, nil)
 
-	AddAuthToRequest(req, id, token, completeBaseUrl, baseUrl)
+	AddAuthToRequest(req, id, token, baseUrl, relay)
 	log.Printf("Relaying call to %v\n", req.URL)
 	resp, err := client.Do(req)
 	respData, err := ioutil.ReadAll(resp.Body)

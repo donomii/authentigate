@@ -1,33 +1,39 @@
 {
 	"Redirects": [
 		{
+			"Name: "ngfileserver",
 			"From": "/secure/:token/ngfileserver/*api",
 			"To": "http://localhost:92",
 			"Tipe": "GET"
 		},
 
 		{
+			"Name: "entirety",
 			"From": "/secure/:token/entirety/*api",
 			"To": "http://localhost:94",
 			"Tipe": "GET"
 		},
 
 		{
+			"Name: "general",
 			"From": "/secure/:token/general/*api",
 			"To": "http://localhost:91",
 			"Tipe": "POST"
 		},
 {
+			"Name: "general",
 			"From": "/secure/:token/general/*api",
 			"To": "http://localhost:91",
 			"Tipe": "GET"
 		},
 {
+			"Name: "shoppr",
 			"From": "/secure/:token/shoppr/*api",
 			"To": "http://localhost:98/shoppr",
 			"Tipe": "GET"
 		},
 		{
+			"Name: "fe",
 			"From": "/secure/:token/fe/*api",
 			"To": "http://localhost:99/fe",
 			"Tipe": "GET"
@@ -35,7 +41,6 @@
 	],
 	"Port": 97,
 	"BaseUrl": "https://entirety.praeceptamachinae.com/secure/",
-	"BaseUrl": "https://entirety.praeceptamachinae.com/",
 	"HostNames": [
 		"entirety.praeceptamachinae.com",
 		"garden.praeceptamachinae.com",
