@@ -1,6 +1,18 @@
 {
 	"Redirects": [
 		{
+			"From": "/secure/:token/ngfileserver/*api",
+			"To": "http://localhost:92",
+			"Tipe": "GET"
+		},
+
+		{
+			"From": "/secure/:token/entirety/*api",
+			"To": "http://localhost:94",
+			"Tipe": "GET"
+		},
+
+		{
 			"From": "/secure/:token/general/*api",
 			"To": "http://localhost:91",
 			"Tipe": "POST"
