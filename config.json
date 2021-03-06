@@ -35,6 +35,7 @@
 	],
 	"Port": 97,
 	"BaseUrl": "https://entirety.praeceptamachinae.com/secure/",
+	"BaseUrl": "https://entirety.praeceptamachinae.com/",
 	"HostNames": [
 		"entirety.praeceptamachinae.com",
 		"garden.praeceptamachinae.com",
