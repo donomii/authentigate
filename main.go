@@ -67,7 +67,7 @@ func format_clf(c *gin.Context, id, responseCode, responseSize string) string {
 
 //Check that the revocable session token is valid, load the user details, and call the provided handler for the url
 //Or, redirect them to the login page
-func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), relay Redirect) func(c *gin.Context) {
+func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, bool), relay *Redirect) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -104,7 +104,8 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, string), rel
 }
 
 type Redirect struct {
-	From, To, Tipe string
+	From, To, Tipe, Name string
+	CopyHeaders []string
 }
 type Config struct {
 	Redirects []Redirect
@@ -142,14 +143,21 @@ func main() {
 
 	router.GET("/", frontPageHandler)
 	//User management pages
-	router.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, ""))
-	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, ""))
+	router.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, nil))
+	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, nil))
 
-	for _, relay := range config.Redirects {
-		if relay.Tipe == "GET" {
-			router.GET(relay.From, makeAuthedRelay(relayGetHandler, relay))
-		} else {
-			router.POST(relay.From, makeAuthedRelay(relayPostHandler, relay))
+	for _, loopPtr := range config.Redirects {
+		relay := loopPtr
+		fmt.Printf("Adding route from %v, to %v\n", relay.From, relay.To)
+		switch relay.Tipe {
+			case "GET":
+			router.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay))
+			case "POST":
+			router.POST(relay.From, makeAuthedRelay(relayPostHandler, &relay))
+			case "PUT":
+			router.PUT(relay.From, makeAuthedRelay(relayPutHandler, &relay))
+		default:
+			panic("Unsupported type for relay")
 		}
 	}
 
@@ -248,7 +256,7 @@ func idToSessionToken(id string) string {
 }
 
 //Show the user their revocable token
-func tokenShowHandler(c *gin.Context, blah string, token, target string) {
+func tokenShowHandler(c *gin.Context, blah string, token string, relay *Redirect, useCookie bool) {
 	sessionID := c.Query("id")
 	displayPage(c, sessionID, "files/showToken.html", nil)
 }
@@ -279,7 +287,7 @@ func setupNewUser(c *gin.Context, foreignID string, token string) string {
 	return user.Token
 }
 
-func newTokenHandler(c *gin.Context, id string, token, target string) {
+func newTokenHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
 	sessionToken := newToken(id)
 	displayPage(c, sessionToken, "files/showToken.html", nil)
 }
@@ -299,8 +307,59 @@ func displayPage(c *gin.Context, token, filename string, cookies map[string]stri
 	c.Writer.Write([]byte(template))
 }
 
+// Redirect to default microservice, using PUT
+func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
+
+	api := c.Param("api")
+	log.Printf("PUT api : %v with id %v\n", api, id)
+	bodyData, _ := ioutil.ReadAll(c.Request.Body)
+	client := &http.Client{}
+	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
+	params := ""
+	if len(uribits) > 1 {
+		params = "?" + uribits[1]
+	}
+
+	req, err := http.NewRequest("PUT", relay.To+api+params, nil)
+
+	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
+
+	//Copy the bare minimum needed for a post request
+	CopyHeaders := []string{"Content-Type", "Content-Length"}
+	for _, h := range CopyHeaders {
+		req.Header.Add(h, c.Request.Header.Get(h))
+	}
+
+	CopyHeaders = relay.CopyHeaders
+	for _, h := range CopyHeaders {
+		req.Header.Add(h, c.Request.Header.Get(h))
+	}
+
+
+
+	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
+
+
+	log.Printf("PUT %v\n", req.URL)
+
+	//Do it
+	resp, err := client.Do(req)
+	check(err)
+	respData, err := ioutil.ReadAll(resp.Body)
+	check(err)
+
+	//Copy back the bare minimum needed
+	c.Header("Content-Type", resp.Header.Get("Content-Type"))
+	c.Header("Content-Length", resp.Header.Get("Content-Length"))
+
+	//Write the result
+	c.Writer.Write(respData)
+	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
+}
+
 // Redirect to default microservice, using POST
-func relayPostHandler(c *gin.Context, id, token string, relay Redirect, useCookie bool) {
+func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
 
 	api := c.Param("api")
 	log.Printf("POST api : %v with id %v\n", api, id)
@@ -312,50 +371,64 @@ func relayPostHandler(c *gin.Context, id, token string, relay Redirect, useCooki
 		params = "?" + uribits[1]
 	}
 
-	req, err := http.NewRequest("POST", target+api+params, nil)
+	req, err := http.NewRequest("POST", relay.To+api+params, nil)
 
-	AddAuthToRequest(req, id, token, baseUrl, relay)
+	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 
 	//Copy the bare minimum needed for a post request
 	CopyHeaders := []string{"Content-Type", "Content-Length"}
 	for _, h := range CopyHeaders {
 		req.Header.Add(h, c.Request.Header.Get(h))
 	}
+
+	CopyHeaders = relay.CopyHeaders
+	for _, h := range CopyHeaders {
+		req.Header.Add(h, c.Request.Header.Get(h))
+	}
+
+
+
 	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
+
 
 	log.Printf("POST %v\n", req.URL)
 
 	//Do it
 	resp, err := client.Do(req)
-	respData, err := ioutil.ReadAll(resp.Body)
-	check(err)
+	var respData []byte
+	if resp != nil {
+		if  resp.Body != nil {
+			respData, err = ioutil.ReadAll(resp.Body)
+			check(err)
+		}
 
-	//Copy back the bare minimum needed
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Header("Content-Length", resp.Header.Get("Content-Length"))
+		//Copy back the bare minimum needed
+		c.Header("Content-Type", resp.Header.Get("Content-Type"))
+		c.Header("Content-Length", resp.Header.Get("Content-Length"))
+	}
 
 	//Write the result
 	c.Writer.Write(respData)
+	log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
 }
 
 //Not very functional, but it will do for now
-func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay Redirect) {
+func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redirect, useCookie bool) {
 	microserviceBaseUrl := fmt.Sprintf("%vc/%v/", baseUrl, relay.Name)
 	microserviceTokenUrl := fmt.Sprintf("%v%v/%v/", baseUrl, token, relay.Name)
 	siteTopUrl := fmt.Sprintf("%v%v/", baseUrl, token)
 	req.Header.Add("authentigate-id", id)
 	req.Header.Add("authentigate-token", token)
 	req.Header.Add("authentigate-base-url", microserviceBaseUrl)
-	req.Header.Add("authentigate-base-token-url", microservicetokenUrl)
+	req.Header.Add("authentigate-base-token-url", microserviceTokenUrl)
 	req.Header.Add("authentigate-top-url", siteTopUrl)
 }
 
 // Redirect to default microservice, using GET
-func relayGetHandler(c *gin.Context, id, token string, relay Redirect) {
+func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
 
 	api := c.Param("api")
-
-	completeBaseUrl := fmt.Sprintf("%v%v/general/", baseUrl, token)
 
 	client := &http.Client{}
 
@@ -367,9 +440,16 @@ func relayGetHandler(c *gin.Context, id, token string, relay Redirect) {
 	}
 
 	//TODO make this configurable from a file
-	req, err := http.NewRequest("GET", target+api+params, nil)
+	req, err := http.NewRequest("GET", relay.To+api+params, nil)
 
-	AddAuthToRequest(req, id, token, baseUrl, relay)
+	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
+
+
+	CopyHeaders := relay.CopyHeaders
+	for _, h := range CopyHeaders {
+		req.Header.Add(h, c.Request.Header.Get(h))
+	}
+
 	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
 	resp, err := client.Do(req)
 	check(err)
@@ -631,12 +711,10 @@ func developCallbackHandler(c *gin.Context) {
 //
 //Eventually, combine this with the rest of the code using configuration files
 
-func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, relay Redirect) {
+func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
 	c.Header("Cache-Control", "no-cache,no-store")
 	api := c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
-
-	completeBaseUrl := fmt.Sprintf("%v%v/ngfileserver/", baseUrl, token)
 
 	client := &http.Client{}
 	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
@@ -644,9 +722,9 @@ func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, rel
 	if len(uribits) > 1 {
 		params = "?" + uribits[1]
 	}
-	req, err := http.NewRequest("GET", target+api+params, nil)
+	req, err := http.NewRequest("GET", relay.To+api+params, nil)
 
-	AddAuthToRequest(req, id, token, baseUrl, relay)
+	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 	log.Printf("Relaying call to %v\n", req.URL)
 	resp, err := client.Do(req)
 	respData, err := ioutil.ReadAll(resp.Body)
@@ -704,5 +782,6 @@ func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
 	check(err)
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Writer.Write(respData)
+	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
 }
