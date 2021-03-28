@@ -16,3 +16,5 @@
 
 accessLog
 authentigate_*
+demo/shop.json
+demo/userdata/*
