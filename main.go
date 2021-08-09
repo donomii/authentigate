@@ -355,7 +355,7 @@ func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	//Write the result
 	c.Writer.Write(respData)
 	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
 // Redirect to default microservice, using POST
@@ -410,7 +410,7 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 	//Write the result
 	c.Writer.Write(respData)
 	log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
 //Not very functional, but it will do for now
@@ -420,6 +420,7 @@ func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redir
 	siteTopUrl := fmt.Sprintf("%v%v/", baseUrl, token)
 	req.Header.Add("authentigate-id", id)
 	req.Header.Add("authentigate-token", token)
+	//req.Header.Add("X-Auth-Token", token)
 	req.Header.Add("authentigate-base-url", microserviceBaseUrl)
 	req.Header.Add("authentigate-base-token-url", microserviceTokenUrl)
 	req.Header.Add("authentigate-top-url", siteTopUrl)
@@ -456,8 +457,9 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	respData, err := ioutil.ReadAll(resp.Body)
 
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
+	c.Header("Content-Disposition", resp.Header.Get("Content-Disposition"))
 	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
 // Redirect to correct oAuth URL
@@ -731,7 +733,7 @@ func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, rel
 	check(err)
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
 func ngfileserverRelayHandler(c *gin.Context, id, token, target string) {
@@ -753,7 +755,7 @@ func ngfileserverRelayHandler(c *gin.Context, id, token, target string) {
 	respData, err := ioutil.ReadAll(resp.Body)
 	check(err)
 	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
 func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
@@ -770,6 +772,7 @@ func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
 	req.Header.Add("authentigate-id", id)
 	req.Header.Add("authentigate-token", token)
 	req.Header.Add("authentigate-base-url", completeBaseUrl)
+	//FIXME: Move to config file, allow configuration per-endpoint
 	CopyHeaders := []string{"Content-Type", "Content-Length"}
 	for _, h := range CopyHeaders {
 		req.Header.Add(h, c.Request.Header.Get(h))
@@ -783,5 +786,5 @@ func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Writer.Write(respData)
 	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprint(resp.StatusCode), fmt.Sprint(resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
