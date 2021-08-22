@@ -464,12 +464,13 @@ func upgradeAndHandle(c *gin.Context, req *http.Request) {
 			mt, message, err := ws.ReadMessage()
 			if err != nil {
 				log.Println("error read message")
-				log.Fatal(err)
+				panic(err)
 			}
 
 			err = socket.WriteMessage(mt, message)
 			if err != nil {
 				log.Println("error write message: " + err.Error())
+				panic(err)
 			}
 
 		}
@@ -530,6 +531,7 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 
 	upgradeH := c.Request.Header.Get("upgrade")
 	if upgradeH == "websocket" {
+	log.Printf("upgrade GET api %v, %v, %v\n", id, api, req.URL)
 		upgradeAndHandle(c, req)
 	}
 
