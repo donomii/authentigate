@@ -449,13 +449,12 @@ func upgradeAndHandle(c *gin.Context, req *http.Request) {
 	ws, err := upGrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Println("error get connection")
-		log.Fatal(err)
+		panic(err)
 	}
 	defer ws.Close()
 
 	socket := websocketClientConn(req.URL.Host, req.URL.Path)
 
-	defer ws.Close()
 	defer socket.Close()
 
 	go func() {
@@ -464,12 +463,13 @@ func upgradeAndHandle(c *gin.Context, req *http.Request) {
 			mt, message, err := ws.ReadMessage()
 			if err != nil {
 				log.Println("error read message")
-				log.Fatal(err)
+				panic(err)
 			}
 
 			err = socket.WriteMessage(mt, message)
 			if err != nil {
 				log.Println("error write message: " + err.Error())
+				panic(err)
 			}
 
 		}
@@ -480,12 +480,13 @@ func upgradeAndHandle(c *gin.Context, req *http.Request) {
 		mt, message, err := socket.ReadMessage()
 		if err != nil {
 			log.Println("error read message")
-			log.Fatal(err)
+			panic(err)
 		}
 
 		err = ws.WriteMessage(mt, message)
 		if err != nil {
 			log.Println("error write message: " + err.Error())
+			panic(err)
 		}
 
 	}
@@ -499,7 +500,7 @@ func websocketClientConn(addr, path string) *websocket.Conn {
 
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatal("dial:", err)
+		panic(err)
 	}
 	return c
 }
