@@ -25,6 +25,7 @@ import (
 
 	"github.com/philippgille/gokv"
 	"github.com/philippgille/gokv/bbolt"
+	  "github.com/gorilla/websocket"
 
 	_ "github.com/philippgille/gokv"
 )
@@ -33,6 +34,13 @@ type userData_t struct {
 	Id         string
 	ForeignIDs []string
 	Token      string
+}
+
+var upGrader = websocket.Upgrader{
+
+CheckOrigin: func(r *http.Request) bool {
+return true
+},
 }
 
 var gocial = gocialite.NewDispatcher()
@@ -115,8 +123,10 @@ type Config struct {
 	LogFile   string
 }
 
+var config *Config
+
 func main() {
-	config := LoadConfig("config.json")
+	config = LoadConfig("config.json")
 	if config.BaseUrl != "" {
 		baseUrl = config.BaseUrl
 	}
@@ -363,7 +373,10 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 
 	api := c.Param("api")
 	log.Printf("POST api : %v with id %v\n", api, id)
-	bodyData, _ := ioutil.ReadAll(c.Request.Body)
+	bodyData, err := ioutil.ReadAll(c.Request.Body)
+	if err != nil {
+		panic(err)
+	}
 	client := &http.Client{}
 	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
 	params := ""
@@ -375,19 +388,23 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 
-	//Copy the bare minimum needed for a post request
-	CopyHeaders := []string{"Content-Type", "Content-Length"}
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
+	CopyHeaders := relay.CopyHeaders
+	log.Printf("Forwarding headers %v\n", CopyHeaders)
+	log.Printf("Request %+V\n", c)
+	log.Printf("Request body %v\n", string(bodyData))
+	for k, _ := range c.Request.Header {
+		req.Header.Add(k, c.Request.Header.Get(k))
+		log.Printf("Copyheader: %v, %v\n", k, c.Request.Header.Get(k))
 	}
 
-	CopyHeaders = relay.CopyHeaders
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
-	}
 
 
+	//req.Header.Add("X-Forwarded-Port",fmt.Sprintf( "%v", config.Port))
+	//req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
+	//req.Header.Add("X-Real-IP", c.RemoteIP)
 
+
+	log.Printf("Sending Request %+V\n", req)
 	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
 
 
@@ -402,15 +419,23 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 			check(err)
 		}
 
-		//Copy back the bare minimum needed
-		c.Header("Content-Type", resp.Header.Get("Content-Type"))
-		c.Header("Content-Length", resp.Header.Get("Content-Length"))
-	}
+		for k, h := range resp.Header {
+			c.Header(k, h[0])
+		}
 
 	//Write the result
 	c.Writer.Write(respData)
 	log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(
+		c, 
+		id, 
+		fmt.Sprintf("%v",resp.StatusCode), 
+		fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	} else {
+		log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
+		log.Printf("redirect failed %+V\n",resp)
+
+	}
 }
 
 //Not very functional, but it will do for now
@@ -425,6 +450,50 @@ func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redir
 	req.Header.Add("authentigate-base-token-url", microserviceTokenUrl)
 	req.Header.Add("authentigate-top-url", siteTopUrl)
 }
+
+
+func upgradeAndHandle(c *gin.Context) {
+ ws, err := upGrader.Upgrade(c.Writer, c.Request, nil)
+  if err != nil {
+    log.Println("error get connection")
+    log.Fatal(err)
+  }
+  defer ws.Close()
+  //Read data in ws
+  mt, message, err := ws.ReadMessage()
+  if err != nil {
+    log.Println("error read message")
+    log.Fatal(err)
+  }
+ 
+  //Write ws data, pong 10 times
+  var count = 0
+  for {
+    count++
+    if count > 10 {
+      break
+    }
+ 
+    message = []byte(string(message) + " " + strconv.Itoa(count))
+    err = ws.WriteMessage(mt, message)
+    if err != nil {
+      log.Println("error write message: " + err.Error())
+    }
+
+}
+
+func websocketClientConn() {
+
+	u := url.URL{Scheme: "ws", Host: *addr, Path: "/echo"}
+	log.Printf("connecting to %s", u.String())
+
+	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		log.Fatal("dial:", err)
+	}
+	defer c.Close()
+}
+
 
 // Redirect to default microservice, using GET
 func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
@@ -449,6 +518,11 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	CopyHeaders := relay.CopyHeaders
 	for _, h := range CopyHeaders {
 		req.Header.Add(h, c.Request.Header.Get(h))
+	}
+
+	upgradeH := c.Request.Header.Get("upgrade")
+	if upgradeH == "websocket" {
+		
 	}
 
 	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
