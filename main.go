@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -23,9 +24,9 @@ import (
 	"github.com/gin-gonic/gin"
 	uuid "github.com/satori/go.uuid"
 
+	"github.com/gorilla/websocket"
 	"github.com/philippgille/gokv"
 	"github.com/philippgille/gokv/bbolt"
-	  "github.com/gorilla/websocket"
 
 	_ "github.com/philippgille/gokv"
 )
@@ -38,9 +39,9 @@ type userData_t struct {
 
 var upGrader = websocket.Upgrader{
 
-CheckOrigin: func(r *http.Request) bool {
-return true
-},
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 var gocial = gocialite.NewDispatcher()
@@ -103,7 +104,7 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, b
 			frontPageHandler(c)
 		} else {
 			//if useCookie {
-				//token = "c"
+			//token = "c"
 			//}
 			handlerFunc(c, id, token, relay, useCookie)
 		}
@@ -113,7 +114,7 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, b
 
 type Redirect struct {
 	From, To, Tipe, Name string
-	CopyHeaders []string
+	CopyHeaders          []string
 }
 type Config struct {
 	Redirects []Redirect
@@ -160,11 +161,11 @@ func main() {
 		relay := loopPtr
 		fmt.Printf("Adding route from %v, to %v\n", relay.From, relay.To)
 		switch relay.Tipe {
-			case "GET":
+		case "GET":
 			router.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay))
-			case "POST":
+		case "POST":
 			router.POST(relay.From, makeAuthedRelay(relayPostHandler, &relay))
-			case "PUT":
+		case "PUT":
 			router.PUT(relay.From, makeAuthedRelay(relayPutHandler, &relay))
 		default:
 			panic("Unsupported type for relay")
@@ -199,7 +200,7 @@ func frontPageHandler(c *gin.Context) {
 		//"<a href='/auth/linkedin'><button>Login with LinkedIn</button></a><br>" +
 		"<a href='/auth/google'><button>Login with Google</button></a><br>" +
 		"<a href='/auth/slack'><button>Login with Slack</button></a><br>" +
-		"<hr/>"+
+		"<hr/>" +
 		"<a href='/auth/github'><button>Sign up with GitHub</button></a><br>" +
 		//"<a href='/auth/linkedin'><button>Sign up with LinkedIn</button></a><br>" +
 		"<a href='/auth/google'><button>Sign up with Google</button></a><br>" +
@@ -345,10 +346,7 @@ func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 		req.Header.Add(h, c.Request.Header.Get(h))
 	}
 
-
-
 	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
-
 
 	log.Printf("PUT %v\n", req.URL)
 
@@ -365,7 +363,7 @@ func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	//Write the result
 	c.Writer.Write(respData)
 	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
 // Redirect to default microservice, using POST
@@ -397,16 +395,12 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 		log.Printf("Copyheader: %v, %v\n", k, c.Request.Header.Get(k))
 	}
 
-
-
 	//req.Header.Add("X-Forwarded-Port",fmt.Sprintf( "%v", config.Port))
 	//req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
 	//req.Header.Add("X-Real-IP", c.RemoteIP)
 
-
 	log.Printf("Sending Request %+V\n", req)
 	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
-
 
 	log.Printf("POST %v\n", req.URL)
 
@@ -414,7 +408,7 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 	resp, err := client.Do(req)
 	var respData []byte
 	if resp != nil {
-		if  resp.Body != nil {
+		if resp.Body != nil {
 			respData, err = ioutil.ReadAll(resp.Body)
 			check(err)
 		}
@@ -423,17 +417,17 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 			c.Header(k, h[0])
 		}
 
-	//Write the result
-	c.Writer.Write(respData)
-	log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
-	accessLog.Write([]byte(format_clf(
-		c, 
-		id, 
-		fmt.Sprintf("%v",resp.StatusCode), 
-		fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+		//Write the result
+		c.Writer.Write(respData)
+		log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
+		accessLog.Write([]byte(format_clf(
+			c,
+			id,
+			fmt.Sprintf("%v", resp.StatusCode),
+			fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 	} else {
 		log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
-		log.Printf("redirect failed %+V\n",resp)
+		log.Printf("redirect failed %+V\n", resp)
 
 	}
 }
@@ -451,49 +445,64 @@ func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redir
 	req.Header.Add("authentigate-top-url", siteTopUrl)
 }
 
+func upgradeAndHandle(c *gin.Context, req *http.Request) {
+	ws, err := upGrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Println("error get connection")
+		log.Fatal(err)
+	}
+	defer ws.Close()
 
-func upgradeAndHandle(c *gin.Context) {
- ws, err := upGrader.Upgrade(c.Writer, c.Request, nil)
-  if err != nil {
-    log.Println("error get connection")
-    log.Fatal(err)
-  }
-  defer ws.Close()
-  //Read data in ws
-  mt, message, err := ws.ReadMessage()
-  if err != nil {
-    log.Println("error read message")
-    log.Fatal(err)
-  }
- 
-  //Write ws data, pong 10 times
-  var count = 0
-  for {
-    count++
-    if count > 10 {
-      break
-    }
- 
-    message = []byte(string(message) + " " + strconv.Itoa(count))
-    err = ws.WriteMessage(mt, message)
-    if err != nil {
-      log.Println("error write message: " + err.Error())
-    }
+	socket := websocketClientConn(req.URL.Host, req.URL.Path)
+
+	defer ws.Close()
+	defer socket.Close()
+
+	go func() {
+		for {
+			//Read data in ws
+			mt, message, err := ws.ReadMessage()
+			if err != nil {
+				log.Println("error read message")
+				log.Fatal(err)
+			}
+
+			err = socket.WriteMessage(mt, message)
+			if err != nil {
+				log.Println("error write message: " + err.Error())
+			}
+
+		}
+	}()
+
+	for {
+		//Read data in ws
+		mt, message, err := socket.ReadMessage()
+		if err != nil {
+			log.Println("error read message")
+			log.Fatal(err)
+		}
+
+		err = ws.WriteMessage(mt, message)
+		if err != nil {
+			log.Println("error write message: " + err.Error())
+		}
+
+	}
 
 }
 
-func websocketClientConn() {
+func websocketClientConn(addr, path string) *websocket.Conn {
 
-	u := url.URL{Scheme: "ws", Host: *addr, Path: "/echo"}
+	u := url.URL{Scheme: "ws", Host: addr, Path: path}
 	log.Printf("connecting to %s", u.String())
 
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		log.Fatal("dial:", err)
 	}
-	defer c.Close()
+	return c
 }
-
 
 // Redirect to default microservice, using GET
 func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
@@ -514,7 +523,6 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 
-
 	CopyHeaders := relay.CopyHeaders
 	for _, h := range CopyHeaders {
 		req.Header.Add(h, c.Request.Header.Get(h))
@@ -522,7 +530,7 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 
 	upgradeH := c.Request.Header.Get("upgrade")
 	if upgradeH == "websocket" {
-		
+		upgradeAndHandle(c, req)
 	}
 
 	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
@@ -533,7 +541,7 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Header("Content-Disposition", resp.Header.Get("Content-Disposition"))
 	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
 // Redirect to correct oAuth URL
@@ -807,7 +815,7 @@ func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, rel
 	check(err)
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
 func ngfileserverRelayHandler(c *gin.Context, id, token, target string) {
@@ -829,7 +837,7 @@ func ngfileserverRelayHandler(c *gin.Context, id, token, target string) {
 	respData, err := ioutil.ReadAll(resp.Body)
 	check(err)
 	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
 func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
@@ -860,5 +868,5 @@ func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Writer.Write(respData)
 	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v",resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
