@@ -1,5 +1,9 @@
 # authentigate
-An edge server that manages user sessions via oauth2.  It accepts requests, authenticates them, and passes the request to the correct microservice.  authentigate increases security by limiting the kind and amount of data that will be sent to microservices.
+An edge server that manages user sessions via oauth2.  Great for small/personal installations.
+
+Authentigate increases your security by protecting your app against several kinds of hacks, and handles user logins and sessions so that you don't have to.
+
+It accepts requests, authenticates them, and passes the request to the correct (micro)service.  authentigate increases security by limiting the kind and amount of data that will be sent to (micro)services.
 
 To increase security and GDPR compliance, authentigate does not store user data, it instead uses oauth2 to authenticate users.  Even if an authentigate server is completely compromised, no user data will be lost, not even passwords (although all session tokens would need to be revoked, forcing users to log in again).
 
@@ -22,12 +26,12 @@ Once you have your details, add them to the file
   "amazon": {
     "clientID": "xxxxxxxxxxxxxx",
     "clientSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "redirectURL": "http://localhost:9090/auth/amazon/callback"
+    "redirectURL": "http://localhost/auth/amazon/callback"
  },
  "bitbucket": {
   "clientID": "xxxxxxxxxxxxxx",
   "clientSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "redirectURL": "http://localhost:9090/auth/bitbucket/callback"
+  "redirectURL": "http://localhost/auth/bitbucket/callback"
   },                                                                                                                         
 }
 ```
@@ -38,11 +42,11 @@ A sample file called provider_secrets.json.examples can be found in the reposito
 
 # Operation
 
-Authentigate is still in development.  At the moment, it redirects to hard-coded microservices(that are reasonably easy to change in the code).  Moving this configuration into a file is a priority.
+Authentigate is still in development.  
 
 The default microservice is expected to run on http://localhost:91/.  All external requests to baseUrl/secure will be sent to this microservice.
 
-Rather than relaying the entire request, authentigate creates a new request, and only copies what is necessary for the request.  It also adds four HTTP parameters: authentigate-id, authentigate-token, authentigate-base-url, authentigate-top-url.
+Rather than relaying the entire request, authentigate creates a new request, and only copies what is necessary for the request.  It also adds four HTTP header fields: authentigate-id, authentigate-token, authentigate-base-url, authentigate-top-url.  You can use these in your program to find out which user is logged in, and how to generate links that work with authentigate.
 
 ## authentigate-id
 
