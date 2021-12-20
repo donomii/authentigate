@@ -1,0 +1,15 @@
+{
+	"Redirects": [
+		{
+			"From": "/secure/:token/demo/*api",
+			"To": "http://localhost:94/",
+			"Tipe": "GET"
+		}
+	],
+	"Port": 80,
+	"BaseUrl": "https://www.mydomain.com/",
+	"HostNames": [
+		"www.mydomain.com"
+	],
+	"LogFile": "accessLog"
+}
