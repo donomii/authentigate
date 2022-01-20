@@ -191,10 +191,11 @@ func purchase(c *gin.Context, id string, token string) {
 
 func main() {
 	router := gin.Default()
-	serveDemo(router, "/fe/")
+	serveDemo(router, "/fe/api/v1/")
 	router.Run("127.0.0.1:99")
 }
 
+///fe/api/v1/shop
 func serveDemo(router *gin.Engine, prefix string) {
 	router.GET(prefix+"basket", makeAuthed(basket))
 	router.GET(prefix+"shop", makeAuthed(shop))
