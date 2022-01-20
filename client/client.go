@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-resty/resty"
+	"gopkg.in/resty.v1"
 )
 
-var shopService string = "http://localhost:98/shoppr/"
+var shopService string = "http://localhost:98/shoppr/api/v1/"
 
 type Coupon struct {
 	Name     string
@@ -29,7 +29,7 @@ func dumpResponse(resp *resty.Response) {
 
 	var basket map[string]int
 	json.Unmarshal(resp.Body(), &basket)
-	fmt.Print("Basket: %v\n", basket)
+	fmt.Printf("Basket: %v\n", basket)
 }
 
 type User struct {
@@ -74,8 +74,7 @@ func basket(c *gin.Context, id string, token string) {
 func shop(c *gin.Context, id string, token string) {
 	var prices map[string]float64
 	resp := rest(c, shopService, "listItems", &prices)
-
-	body := "<a href=checkout>Go to checkout</a>"
+	body :=""
 	for k, v := range prices {
 		body = body + fmt.Sprintf("<p><a href=\"addItem?item="+k+"\">%v</a> ... $%v</p>\n", k, v)
 	}
@@ -90,6 +89,16 @@ func shop(c *gin.Context, id string, token string) {
 		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", k, v)
 	}
 
+	body =body+ "<h2><a href=checkout>Go to checkout</a></h2>"
+	c.Writer.Write([]byte(wrapPage("Shop", body)))
+}
+
+func coupon(c *gin.Context, id string, token string) {
+	var coupon Coupon
+	rest(c, shopService, "createCoupon?duration=1000&discount=0.7&target=orange", &coupon)
+
+	body := "<h2>Coupon</h2>"
+	body = body + "<p>Use code " + coupon.Name + " for a " + fmt.Sprintf("%v", coupon.Discount) + " on " + coupon.Target + "</p>"
 	c.Writer.Write([]byte(wrapPage("Shop", body)))
 }
 
@@ -137,10 +146,20 @@ func checkout(c *gin.Context, id string, token string) {
 	body = body + "<p>Total: " + fmt.Sprintf("%v", total) + "</p>"
 
 	body = body + `<h2>Coupon</h2>
-	
+	<p>Get a discount <a href=coupon>coupon</a></p>
 	<form action="purchase">
   <label for="fname">Coupon</label>
   <input type="text" id="coupon" name="coupon"><br><br>
+
+<label for="fname">Credit Card</label>
+  <input type="text" id="ccnumber" name="ccnumber"><br><br>
+
+<label for="fname">Name</label>
+  <input type="text" id="ccname" name="ccname"><br><br>
+
+<label for="fname">Expiry</label>
+  <input type="text" id="ccexpiry" name="ccexpiry"><br><br>
+
   <input type="submit" value="Submit">
 </form>
 `
@@ -166,6 +185,7 @@ func purchase(c *gin.Context, id string, token string) {
 	}
 	body = body + "<p>Total: " + fmt.Sprintf("%v", total) + "</p>"
 	body = body + "<h2>Purchase confirmed</h2>"
+	body = body + "<a href=shop>Back to start</a>"
 	c.Writer.Write([]byte(wrapPage("Purchase", body)))
 }
 
@@ -181,4 +201,5 @@ func serveDemo(router *gin.Engine, prefix string) {
 	router.GET(prefix+"checkout", makeAuthed(checkout))
 	router.GET(prefix+"purchase", makeAuthed(purchase))
 	router.GET(prefix+"addItem", makeAuthed(addItem))
+	router.GET(prefix+"coupon", makeAuthed(coupon))
 }
