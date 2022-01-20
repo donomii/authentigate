@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"gopkg.in/resty.v1"
 )
 
-var shopService string = "http://localhost:98/shoppr/api/v1/"
+var shopService string = "http://localhost:8098/shoppr/api/v1/"
 
 type Coupon struct {
 	Name     string
@@ -71,25 +72,83 @@ func basket(c *gin.Context, id string, token string) {
 	c.Writer.Write([]byte(wrapPage("Basket", body)))
 }
 
+type price struct {
+	Price float64
+	Name  string
+}
+
+type BasketItem struct {
+	Name  string
+	Count int
+}
+
+type wat2 []BasketItem
+
+type wat []price
+
+func SortWat(p map[string]float64) wat {
+	out := make([]price, len(p))
+	names := []string{}
+	for i, _ := range p {
+		names = append(names, i)
+	}
+	sort.Strings(names)
+	for i, v := range names {
+		out[i] = price{p[v], v}
+	}
+	return out
+}
+
+func SortWat2(w map[string]int) wat2 {
+	out := make([]BasketItem, len(w))
+	names := []string{}
+	for i, _ := range w {
+		names = append(names, i)
+	}
+	sort.Strings(names)
+	for i, v := range names {
+		out[i] = BasketItem{v, w[v]}
+	}
+	return out
+}
+func map2wat(m map[string]float64) wat {
+	var list wat
+	for k, v := range m {
+		list = append(list, price{v, k})
+	}
+	return list
+}
+
+func map2wat2(m map[string]int) wat2 {
+	var list wat2
+	for k, v := range m {
+		list = append(list, BasketItem{k, v})
+	}
+	return list
+}
+
 func shop(c *gin.Context, id string, token string) {
-	var prices map[string]float64
-	resp := rest(c, shopService, "listItems", &prices)
-	body :=""
-	for k, v := range prices {
-		body = body + fmt.Sprintf("<p><a href=\"addItem?item="+k+"\">%v</a> ... $%v</p>\n", k, v)
+	var pricemap map[string]float64
+	resp := rest(c, shopService, "listItems", &pricemap)
+	body := ""
+	prices := SortWat(pricemap)
+	for _, v := range prices {
+		body = body + fmt.Sprintf("<p><a href=\"addItem?item=%v\">%v</a> ... $%v</p>\n", v.Name, v.Name, v.Price)
 	}
 
 	resp = rest(c, shopService, "basket", nil)
 
-	var basket map[string]int
-	json.Unmarshal(resp.Body(), &basket)
+	var basketmap map[string]int
+	json.Unmarshal(resp.Body(), &basketmap)
 
 	body = body + "<h2>Basket</h2>"
-	for k, v := range basket {
-		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", k, v)
+
+	basket := SortWat2(basketmap)
+	for _, v := range basket {
+		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", v.Name, v.Count)
 	}
 
-	body =body+ "<h2><a href=checkout>Go to checkout</a></h2>"
+	body = body + "<h2><a href=checkout>Go to checkout</a></h2>"
 	c.Writer.Write([]byte(wrapPage("Shop", body)))
 }
 
@@ -192,7 +251,7 @@ func purchase(c *gin.Context, id string, token string) {
 func main() {
 	router := gin.Default()
 	serveDemo(router, "/fe/api/v1/")
-	router.Run("127.0.0.1:99")
+	router.Run("127.0.0.1:8099")
 }
 
 ///fe/api/v1/shop

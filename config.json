@@ -30,25 +30,25 @@
 		{
 			"Name": "general",
 			"From": "/secure/:token/general/*api",
-			"To": "http://localhost:91",
+			"To": "http://localhost:8091",
 			"Tipe": "POST"
 		},
 		{
 			"Name": "general",
 			"From": "/secure/:token/general/*api",
-			"To": "http://localhost:91",
+			"To": "http://localhost:8091",
 			"Tipe": "GET"
 		},
 		{
 			"Name": "shoppr",
 			"From": "/secure/:token/shoppr/*api",
-			"To": "http://localhost:98/shoppr/api/v1",
+			"To": "http://localhost:8098/shoppr/api/v1",
 			"Tipe": "GET"
 		},
 		{
 			"Name": "fe",
 			"From": "/secure/:token/fe/*api",
-			"To": "http://localhost:99/fe/api/v1",
+			"To": "http://localhost:8099/fe/api/v1",
 			"Tipe": "GET"
 		}
 	],

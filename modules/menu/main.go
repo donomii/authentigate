@@ -68,7 +68,7 @@ func main() {
 	router.Static("/files", "./files")
 
 	//log.Fatal(autotls.Run(router, "entirety.praeceptamachinae.com", "walledgarden.praeceptamachinae.com"))
-	router.Run("127.0.0.1:91")
+	router.Run("127.0.0.1:8091")
 
 	/*	http.HandleFunc("/api/websocket", websocketHandler)
 		log.Println("Listening for websockets on 0.0.0.0:82")

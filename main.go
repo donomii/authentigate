@@ -146,7 +146,7 @@ func main() {
 	defer shutdownFunc()
 
 	if develop {
-		baseUrl = "http://localhost:80/secure/"
+		baseUrl = "http://localhost:8000/secure/"
 	}
 
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -183,7 +183,7 @@ func main() {
 	}
 
 	if develop {
-		router.Run("127.0.0.1:80")
+		router.Run("127.0.0.1:8000")
 	} else {
 		log.Fatal(autotls.Run(router, config.HostNames...))
 	}

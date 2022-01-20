@@ -21,5 +21,5 @@ func main() {
 	os.Mkdir("userdata", 0700)
 	router := gin.Default()
 	configureRoutes(router, "/shoppr/api/v1/")
-	router.Run("127.0.0.1:98")
+	router.Run("127.0.0.1:8098")
 }

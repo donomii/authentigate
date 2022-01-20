@@ -1,3 +1,4 @@
+#!/bin/sh
 pkill -f "./client"
 pkill -f "./demo"
 pkill -f "./menu"
