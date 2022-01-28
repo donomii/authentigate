@@ -1,0 +1,60 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<script type="text/javascript" src="/files/metro/js/jquery-1.8.3.min.js"></script>
+<title>Control Panel</title>
+<style>
+.wrapper {
+	  display: grid;
+	  grid-template-columns: 1fr 1fr 1fr;
+	  grid-auto-rows: minmax(100px, auto);
+	   column-gap:3em;
+	     row-gap: 3em;
+}
+html { font-size: 22px; }
+body { padding: 1rem; }
+
+.cards {
+	max-width: 1200px;
+	margin: 0 auto;
+	display: grid;
+	grid-gap: 1rem;
+}
+.card {
+	background-color: dodgerblue;
+	color: white;
+	padding: 1rem;
+	height: 4rem;
+	text-align: center;
+	display: -webkit-flexbox;
+	display: -ms-flexbox;
+	display: -webkit-flex;
+	display: flex;
+	-webkit-flex-align: center;
+	-ms-flex-align: center;
+	-webkit-align-items: center;
+	align-items: center;
+	justify-content: center;
+}
+@media (min-width: 600px) {
+	  .cards { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 900px) {
+	  .cards { grid-template-columns: repeat(3, 1fr); }
+}
+</style>
+</head>
+
+<body >
+<!--buttons-->
+<div class="cards">
+    <a href="TARGET1"  class="card"><div>DESCRIPTION1</div></a>
+    <a href="TARGET2"  class="card"><div>DESCRIPTION2</div></a>
+    <a href="TARGET3"  class="card"><div>DESCRIPTION3</div></a>
+    <a href="TARGET4"  class="card"><div>DESCRIPTION4</div></a>
+    <a href="TARGET5"  class="card"><div>DESCRIPTION5</div></a>
+    <a href="TARGET6"  class="card"><div>DESCRIPTION6</div></a>
+</div>
+</body>
+</html>

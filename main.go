@@ -150,7 +150,7 @@ func main() {
 	defer shutdownFunc()
 
 	if develop {
-		baseUrl = "http://localhost:80/secure/"
+		baseUrl = "http://localhost:8000/secure/"
 	}
 
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -187,7 +187,7 @@ func main() {
 	}
 
 	if develop {
-		router.Run("127.0.0.1:80")
+		router.Run("127.0.0.1:8000")
 	} else {
 		log.Fatal(autotls.Run(router, config.HostNames...))
 	}
@@ -340,7 +340,8 @@ func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 
 	//Copy the bare minimum needed for a post request
-	CopyHeaders := []string{"Content-Type", "Content-Length"}
+	//FIXME:  Move this into config file, allow configuration per-endpoint
+	CopyHeaders := []string{"Content-Type", "Content-Length", "Content-Disposition"}
 	for _, h := range CopyHeaders {
 		req.Header.Add(h, c.Request.Header.Get(h))
 	}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>
+      HTML Webcam Capture Demo
+    </title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <script>
+    	sessionToken="TOKEN"
+    </script>
+    <!--
+    <script src="1-basics.js"></script>
+    <script src="2-output-file.js"></script>
+    -->
+    <script src="/files/js-webcam/3-upload.js"></script>
+    <style>
+      #vid-show, #vid-canvas, #vid-take {
+        margin-bottom: 20px;
+      }
+      html, body {
+        padding: 0;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body  onload=" setTimeout(function() { uploader(sessionToken); }, 11000);">
+    <div id="vid-controls">
+	    <video id="vid-show" autoplay ></video>
+      <input id="vid-take" type="button" value="Start Uploading"/>
+      <div id="vid-canvas"></div>
+    </div>
+  </body>
+</html>

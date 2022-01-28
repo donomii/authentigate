@@ -1,0 +1,211 @@
+{
+  "swagger": "2.0",
+  "paths": {
+    "/shoppr/api/v1/addItem": {
+      "get": {
+        "tags": [
+          "basket"
+        ],
+        "summary": "Add item to basket.",
+        "operationId": "addItem",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "Item",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "Amount",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/shoppr/api/v1/basket": {
+      "get": {
+        "tags": [
+          "basket"
+        ],
+        "summary": "Show contents of basket.",
+        "operationId": "basket",
+        "responses": {
+          "200": {
+            "$ref": "#/responses/map[string]int"
+          }
+        }
+      }
+    },
+    "/shoppr/api/v1/checkout": {
+      "get": {
+        "tags": [
+          "basket"
+        ],
+        "summary": "Calculate checkout details.",
+        "operationId": "checkout",
+        "responses": {
+          "200": {
+            "$ref": "#/responses/map[string]float64"
+          }
+        }
+      }
+    },
+    "/shoppr/api/v1/createCoupon": {
+      "get": {
+        "tags": [
+          "coupon"
+        ],
+        "summary": "Create a new coupon for given duration, discount and target item.",
+        "operationId": "createCoupon",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "Duration",
+            "in": "query"
+          },
+          {
+            "type": "number",
+            "format": "double",
+            "name": "Discount",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "Target",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/Coupon"
+          }
+        }
+      }
+    },
+    "/shoppr/api/v1/deleteCoupon": {
+      "get": {
+        "tags": [
+          "coupon"
+        ],
+        "summary": "Delete a coupon.",
+        "operationId": "deleteCoupon",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "Coupon",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/shoppr/api/v1/listCoupons": {
+      "get": {
+        "tags": [
+          "coupon"
+        ],
+        "summary": "List all coupons.",
+        "operationId": "listCoupons",
+        "responses": {
+          "200": {
+            "$ref": "#/responses/Coupon"
+          }
+        }
+      }
+    },
+    "/shoppr/api/v1/listItems": {
+      "get": {
+        "tags": [
+          "shop"
+        ],
+        "summary": "List all coupons.",
+        "operationId": "listItems",
+        "responses": {
+          "200": {
+            "$ref": "#/responses/Coupon"
+          }
+        }
+      }
+    },
+    "/shoppr/api/v1/purchase": {
+      "get": {
+        "tags": [
+          "basket"
+        ],
+        "summary": "Purchase basket.",
+        "operationId": "purchase",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "CCexpiry",
+            "name": "Coupon",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/map[string]float64"
+          }
+        }
+      }
+    },
+    "/shoppr/api/v1/reset": {
+      "get": {
+        "tags": [
+          "reset"
+        ],
+        "summary": "Reset all data for testing.",
+        "operationId": "reset",
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/shoppr/api/v1/updateCoupon": {
+      "get": {
+        "tags": [
+          "coupon"
+        ],
+        "summary": "Update an existing coupon with given duration, discount and target item.",
+        "operationId": "updateCoupon",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "Duration",
+            "in": "query"
+          },
+          {
+            "type": "number",
+            "format": "double",
+            "name": "Discount",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "Target",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/Coupon"
+          }
+        }
+      }
+    }
+  }
+}

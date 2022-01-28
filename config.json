@@ -29,22 +29,19 @@
 			"CopyHeaders": ["Content-Type", "Content-Length", "Authorization"],
 			"Tipe": "POST"
 		},
-	{
+		{
 			"Name": "ngfileserver",
 			"From": "/secure/:token/ngfileserver/*api",
 			"To": "http://localhost:92",
 			"CopyHeaders": ["Content-Type", "Content-Length", "Authorization"],
 			"Tipe": "PUT"
 		},
-
-
 		{
 			"Name": "entirety",
 			"From": "/secure/:token/entirety/*api",
 			"To": "http://localhost:94",
 			"Tipe": "GET"
 		},
-
 		{
 			"Name": "quester",
 			"From": "/secure/:token/quester/*api",
@@ -67,10 +64,10 @@
 			"CopyHeaders": ["Content-Type", "Content-Length"],
 			"Tipe": "POST"
 		},
-{
+		{
 			"Name": "general",
 			"From": "/secure/:token/general/*api",
-			"To": "http://localhost:91",
+			"To": "http://localhost:8091",
 			"Tipe": "GET"
 		},
 		{
@@ -90,13 +87,13 @@
 		{
 			"Name": "shoppr",
 			"From": "/secure/:token/shoppr/*api",
-			"To": "http://localhost:98/shoppr",
+			"To": "http://localhost:8098/shoppr/api/v1",
 			"Tipe": "GET"
 		},
 		{
 			"Name": "fe",
 			"From": "/secure/:token/fe/*api",
-			"To": "http://localhost:99/fe",
+			"To": "http://localhost:8099/fe/api/v1",
 			"Tipe": "GET"
 		}
 	],
