@@ -244,9 +244,19 @@ func displayNiceMainMenu(c *gin.Context, prefix string) {
 		//[]string{"general/api/cameraUploader", "Broadcast this camera", ""},
 		//[]string{"general/api/cameraWatcher", "Watch another camera", ""},
 		//[]string{"general/api/shutdown", "Shutdown the server", ""},
-		[]string{"entirety/local.html", "Maps", ""},
 		//[]string{"ngfileserver/summary", "Files", ""},
-		[]string{"fe/shop", "Shop Demo", ""},
+                //[]string{"general/api/subMenu", "Remote Control", ""},
+                //[]string{"quester/summary", "Unfinished Business", ""},
+                []string{"quester/summary", "Unfinished Business", ""},
+                //[]string{"general/api/cameraUploader", "Broadcast this camera", ""},
+                //[]string{"general/api/cameraWatcher", "Watch another camera", ""},
+                //[]string{"general/api/shutdown", "Shutdown the server", ""},
+                []string{"entirety/local.html", "Maps", ""},
+                //[]string{"ngfileserver/summary", "Files", ""},
+                []string{"entiretymax/local.html", "Complete Maps", ""},
+                []string{"entiretymax2/local.html", "Complete Maps(alternate)", ""},
+                []string{"ngfileserver/summary", "Files", ""},
+                []string{"fe/shop", "Shop Demo", ""},
 	})
 	c.Writer.Write([]byte(page))
 }
