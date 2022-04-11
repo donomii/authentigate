@@ -128,6 +128,10 @@ var config *Config
 
 func main() {
 	config = LoadConfig("config.json")
+	if config == nil {
+		fmt.Printf("Failed to read config file, exiting!\n")
+		os.Exit(1)
+	}
 	if config.BaseUrl != "" {
 		baseUrl = config.BaseUrl
 	}
@@ -397,9 +401,10 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 		log.Printf("Copyheader: %v, %v\n", k, c.Request.Header.Get(k))
 	}
 
-	//req.Header.Add("X-Forwarded-Port",fmt.Sprintf( "%v", config.Port))
-	//req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
+	req.Header.Add("X-Forwarded-Port",fmt.Sprintf( "%v", config.Port))
+	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
 	//req.Header.Add("X-Real-IP", c.RemoteIP)
+	req.Header.Add("Host", "entirety.praeceptamachinae.com")
 
 	log.Printf("Sending Request %+V\n", req)
 	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
@@ -460,17 +465,27 @@ func upgradeAndHandle(c *gin.Context, req *http.Request) {
 	defer socket.Close()
 
 	go func() {
+	defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Socket closed while processing %v: %v", c.Request.URL, r)
+			}
+		}()
+
+		defer ws.Close()
+		defer socket.Close()
 		for {
 			//Read data in ws
 			mt, message, err := ws.ReadMessage()
 			if err != nil {
-				log.Println("error read message")
+				log.Println("error reading message from client")
 				panic(err)
 			}
 
+			log.Printf("!!!!!Message %+v\nmt %+v\n", message, mt)
+
 			err = socket.WriteMessage(mt, message)
 			if err != nil {
-				log.Println("error write message: " + err.Error())
+				log.Println("error writing message to server: " + err.Error())
 				panic(err)
 			}
 
@@ -485,6 +500,7 @@ func upgradeAndHandle(c *gin.Context, req *http.Request) {
 			panic(err)
 		}
 
+			log.Printf("Message %+v\nmt %+v\n", message, mt)
 		err = ws.WriteMessage(mt, message)
 		if err != nil {
 			log.Println("error write message: " + err.Error())
@@ -533,7 +549,9 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 
 	upgradeH := c.Request.Header.Get("upgrade")
 	if upgradeH == "websocket" {
+	log.Printf("upgrade GET api %v, %v, %v\n", id, api, req.URL)
 		upgradeAndHandle(c, req)
+		return
 	}
 
 	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
