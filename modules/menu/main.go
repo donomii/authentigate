@@ -245,7 +245,7 @@ func displayNiceMainMenu(c *gin.Context, prefix string) {
 		//[]string{"general/api/cameraWatcher", "Watch another camera", ""},
 		//[]string{"general/api/shutdown", "Shutdown the server", ""},
 		[]string{"entirety/local.html", "Maps", ""},
-		//[]string{"ngfileserver/summary", "Files", ""},
+		[]string{"presence/room", "Presence", ""},
 		[]string{"fe/shop", "Shop Demo", ""},
 	})
 	c.Writer.Write([]byte(page))

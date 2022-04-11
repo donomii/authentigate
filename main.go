@@ -178,6 +178,7 @@ func main() {
 
 	//Drop CSS and js libraries in here
 	router.Static("/files", "./files")
+	router.Static("/favicon.ico", "./favicon.ico")
 	if develop {
 		router.GET("/develop/auth/callback", developCallbackHandler)
 	}

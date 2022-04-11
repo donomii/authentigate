@@ -40,6 +40,12 @@
 			"Tipe": "GET"
 		},
 		{
+			"Name": "presence",
+			"From": "/secure/:token/presence/*api",
+			"To": "http://localhost:8093/presence",
+			"Tipe": "GET"
+		},
+		{
 			"Name": "shoppr",
 			"From": "/secure/:token/shoppr/*api",
 			"To": "http://localhost:8098/shoppr/api/v1",
