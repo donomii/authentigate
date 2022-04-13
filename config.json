@@ -1,6 +1,21 @@
 {
 	"Redirects": [
 		{
+			"Name": "grafana",
+			"From": "/secure/:token/grafana/*api",
+			"To": "http://localhost:9090",
+			"CopyHeaders": "Authorization",
+			"Tipe": "GET"
+		},
+		{
+			"Name": "grafana-static",
+			"From": "/static/*api",
+			"To": "http://localhost:9090/static",
+			"CopyHeaders": "Authorization",
+			"Tipe": "GET"
+		},
+
+		{
 			"Name": "ngfileserver",
 			"From": "/secure/:token/ngfileserver/*api",
 			"To": "http://localhost:92",
@@ -11,14 +26,14 @@
 			"Name": "ngfileserver",
 			"From": "/secure/:token/ngfileserver/*api",
 			"To": "http://localhost:92",
-			"CopyHeaders": "Authorization",
+			"CopyHeaders": ["Content-Type", "Content-Length", "Authorization"],
 			"Tipe": "POST"
 		},
 		{
 			"Name": "ngfileserver",
 			"From": "/secure/:token/ngfileserver/*api",
 			"To": "http://localhost:92",
-			"CopyHeaders": "Authorization",
+			"CopyHeaders": ["Content-Type", "Content-Length", "Authorization"],
 			"Tipe": "PUT"
 		},
 		{
@@ -28,15 +43,49 @@
 			"Tipe": "GET"
 		},
 		{
+			"Name": "quester",
+			"From": "/secure/:token/quester/*api",
+			"To": "http://localhost:93/quester",
+			"Tipe": "GET"
+		},
+
+		{
+			"Name": "quester",
+			"From": "/secure/:token/quester/*api",
+			"To": "http://localhost:93/quester",
+			"CopyHeaders": ["Content-Type", "Content-Length"],
+			"Tipe": "POST"
+		},
+
+		{
 			"Name": "general",
 			"From": "/secure/:token/general/*api",
-			"To": "http://localhost:8091",
+			"To": "http://localhost:91",
+			"CopyHeaders": ["Content-Type", "Content-Length"],
 			"Tipe": "POST"
 		},
 		{
 			"Name": "general",
 			"From": "/secure/:token/general/*api",
 			"To": "http://localhost:8091",
+			"Tipe": "GET"
+		},
+		{
+			"Name": "presence",
+			"From": "/secure/:token/presence/*api",
+			"To": "http://localhost:8093/presence",
+			"Tipe": "GET"
+		},
+		{
+			"Name": "entiretymax2",
+			"From": "/secure/:token/entiretymax2/*api",
+			"To": "http://localhost:6181",
+			"Tipe": "GET"
+		},
+		{
+			"Name": "entiretymax",
+			"From": "/secure/:token/entiretymax/*api",
+			"To": "http://localhost:6180",
 			"Tipe": "GET"
 		},
 		{

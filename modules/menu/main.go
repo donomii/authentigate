@@ -257,6 +257,7 @@ func displayNiceMainMenu(c *gin.Context, prefix string) {
                 []string{"entiretymax2/local.html", "Complete Maps(alternate)", ""},
                 []string{"ngfileserver/summary", "Files", ""},
                 []string{"fe/shop", "Shop Demo", ""},
+		[]string{"presence/room", "Presence", ""},
 	})
 	c.Writer.Write([]byte(page))
 }
