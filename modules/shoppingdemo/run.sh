@@ -1,7 +1,7 @@
 cd restserver
 go build .
-./demo &
+./restserver &
 cd ..
 cd frontend
 go build .
-./client
+./frontend

@@ -71,19 +71,23 @@
 			"Tipe": "GET"
 		},
 		{
+			"Name": "presence",
+			"From": "/secure/:token/presence/*api",
+			"To": "http://localhost:8093/presence",
+			"Tipe": "GET"
+		},
+		{
 			"Name": "entiretymax2",
 			"From": "/secure/:token/entiretymax2/*api",
 			"To": "http://localhost:6181",
 			"Tipe": "GET"
 		},
-
 		{
 			"Name": "entiretymax",
 			"From": "/secure/:token/entiretymax/*api",
 			"To": "http://localhost:6180",
 			"Tipe": "GET"
 		},
-
 		{
 			"Name": "shoppr",
 			"From": "/secure/:token/shoppr/*api",
