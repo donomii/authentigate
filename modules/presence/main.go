@@ -7,8 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/donomii/goof"
@@ -22,7 +22,13 @@ import (
 
 var safe bool = false
 
-type UserMap map[string]time.Time
+type UserData struct {
+	LastTime          time.Time
+	ExternalIPaddress string
+	LocalIPaddress    string
+}
+
+type UserMap map[string]UserData
 
 type Room struct {
 	Users UserMap
@@ -74,88 +80,33 @@ func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Cont
 
 }
 
-func summary(c *gin.Context, id string, token string) {
+//Make a sorted list of the keys in the map
+func (m UserMap) Keys() []string {
 
-	c.Writer.Write([]byte(`
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>jsTree test</title>
-  <!-- 2 load the theme CSS file --><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css" />
-<script>
-window.addEventListener( "pageshow", function ( event ) {
-  var historyTraversal = event.persisted || 
-                         ( typeof window.performance != "undefined" && 
-                              window.performance.navigation.type === 2 );
-  if ( historyTraversal ) {
-    // Handle page restore.
-    window.location.reload();
-  }
-});
-</script>
-</head>
-<body>
-   ` + taskDisplay(id, "nodes", false) + `
- 
-  <!-- 4 include the jQuery library -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/1.12.1/jquery.min.js"></script>
-  <!-- 5 include the minified jstree source -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js"></script>
-  <script>
-  $(function () {
-    // 6 create an instance when the DOM is ready
-    $('#jstree').jstree();
-    // 7 bind to events triggered on the tree
-    $('#jstree').on("changed.jstree", function (e, data) {
-      console.log(data.selected);
-    });
-	
-    // 8 interact with the tree - either way is OK
-    $('button').on('click', function () {
-      $('#jstree').jstree(true).select_node('child_node_1');
-      $('#jstree').jstree('select_node', 'child_node_1');
-      $.jstree.reference('#jstree').select_node('child_node_1');
-    });
-  });
-  </script>
-</body>
-</html>
-`))
+	var keys []string
+	for k := range m {
+		keys = append(keys, k)
+	}
+	//Sort the keys
+	sort.Strings(keys)
+	return keys
 }
 
-func detailed(c *gin.Context, id string, token string) {
-	q := c.Query("q")
-	c.Writer.Write([]byte(`
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
+func render_users(Users UserMap) string {
+	userHtml := "<div id=\"users\">"
+	ks := Users.Keys()
+	for _, k := range ks {
+		v := Users[k]
+		diff := time.Now().Sub(v.LastTime)
+		//if diff < 60 {
+		levelg := goof.Clamp(255-int(diff.Seconds())*25, 0, 255)
+		levelr := goof.Clamp(int(diff.Seconds())*25, 0, 255)
+		userHtml = userHtml + fmt.Sprintf("<div><span class='box' style='background-color: #%02x%02x%02x;'>U</span>user %v: %v seconds(<a href=\"http://%v\">%v</a>,<a href=\"http://%v\">%v</a>)</div>", levelr, levelg, 1, k, int(diff.Seconds()), v.ExternalIPaddress, v.ExternalIPaddress, v.LocalIPaddress, v.LocalIPaddress)
+		//}
+	}
+	userHtml = userHtml + "</div>"
+	return userHtml
 
-  <title>jsTree test</title>
-
-  <!-- 2 load the theme CSS file --><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css" />
-  <!-- 4 include the jQuery library -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/1.12.1/jquery.min.js"></script>
-  <!-- 5 include the minified jstree source -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js"></script>
-<script>
-window.addEventListener( "pageshow", function ( event ) {
-  var historyTraversal = event.persisted || 
-                         ( typeof window.performance != "undefined" && 
-                              window.performance.navigation.type === 2 );
-  if ( historyTraversal ) {
-    // Handle page restore.
-    window.location.reload();
-  }
-});
-</script>
-</head>
-<body>
-   ` + taskDisplay(id, q, true) + `
-</body>
-</html>
-`))
 }
 
 func handle_users(c *gin.Context, id string, token string) {
@@ -167,28 +118,33 @@ func handle_users(c *gin.Context, id string, token string) {
 	room, ok := Rooms[room_id]
 	if !ok {
 		Rooms[room_id] = Room{Users: UserMap{}}
-		handle_room(c, id, token)
+		handle_users(c, id, token)
 		return
 	}
 
-	user_id := c.Query("user")
+	user_id := c.Query("host")
 	if user_id != "" {
 		id = user_id
+	} else {
+		user_id = c.Query("user")
+		if user_id != "" {
+			id = user_id
+		}
 	}
-	room.Users[id] = time.Now()
+	userdata, ok := room.Users[id]
+	if !ok {
+		userdata = UserData{}
 
-	userHtml := "<div id=\"users\">"
-	for k, v := range room.Users {
-		diff := time.Now().Sub(v)
-		//if diff < 60 {
-		levelg := goof.Clamp(255-int(diff.Seconds())*25, 0, 255)
-		levelr := goof.Clamp(int(diff.Seconds())*25, 0, 255)
-		userHtml = userHtml + fmt.Sprintf("<div><span class='box' style='background-color: #%02x%02x%02x;'>U</span>user %v: %v seconds</div>", levelr, levelg, 1, k, int(diff.Seconds()))
-		//}
 	}
-	userHtml = userHtml + "</div>"
-	c.Writer.Write([]byte(userHtml))
+	userdata.LastTime = time.Now()
+	userdata.ExternalIPaddress = c.Request.Header["X-Forwarded-For"][0]
+	userdata.LocalIPaddress = c.Query("localip")
 
+	room.Users[id] = userdata
+
+	log.Printf("Roomdata: %v", room)
+	log.Printf("Request: %v", c.Request)
+	c.Writer.Write([]byte(render_users(room.Users)))
 }
 
 func handle_room(c *gin.Context, id string, token string) {
@@ -204,22 +160,28 @@ func handle_room(c *gin.Context, id string, token string) {
 		return
 	}
 
-	user_id := c.Query("user")
+	user_id := c.Query("host")
 	if user_id != "" {
 		id = user_id
+	} else {
+		user_id = c.Query("user")
+		if user_id != "" {
+			id = user_id
+		}
 	}
-	room.Users[id] = time.Now()
+	userdata, ok := room.Users[id]
+	if !ok {
+		userdata = UserData{}
+		room.Users[id] = userdata
+	}
+	userdata.LastTime = time.Now()
+	possibleIPs := c.Request.Header["X-Tinyproxy"]
+	if len(possibleIPs) > 0 {
+		userdata.ExternalIPaddress = possibleIPs[0]
+	}
+	userdata.LocalIPaddress = ""
 
-	userHtml := "<div id=\"users\">"
-	for k, v := range room.Users {
-		diff := time.Now().Sub(v)
-		//if diff < 60 {
-		levelg := goof.Clamp(255-int(diff.Seconds())*25, 0, 255)
-		levelr := goof.Clamp(int(diff.Seconds())*25, 0, 255)
-		userHtml = userHtml + fmt.Sprintf("<div><span class='box' style='background-color: #%02x%02x%02x;'>U</span>user %v: %v seconds</div>", levelr, levelg, 1, k, int(diff.Seconds()))
-		//}
-	}
-	userHtml = userHtml + "</div>"
+	userHtml := render_users(room.Users)
 
 	c.Writer.Write([]byte(`
 <!DOCTYPE html>
@@ -237,6 +199,60 @@ func handle_room(c *gin.Context, id string, token string) {
 background-color: green;
 }
 </style>
+
+
+<script>
+var ipaddress ="no ipaddress found";
+// NOTE: window.RTCPeerConnection is "not a constructor" in FF22/23
+var RTCPeerConnection = /*window.RTCPeerConnection ||*/ window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+
+if (RTCPeerConnection) (function () {
+    var rtc = new RTCPeerConnection({iceServers:[]});
+    if (1 || window.mozRTCPeerConnection) {      // FF [and now Chrome!] needs a channel/stream to proceed
+        rtc.createDataChannel('', {reliable:false});
+    };
+    
+    rtc.onicecandidate = function (evt) {
+        // convert the candidate to SDP so we can run it through our general parser
+        // see https://twitter.com/lancestout/status/525796175425720320 for details
+        if (evt.candidate) grepSDP("a="+evt.candidate.candidate);
+    };
+    rtc.createOffer(function (offerDesc) {
+        grepSDP(offerDesc.sdp);
+        rtc.setLocalDescription(offerDesc);
+    }, function (e) { console.warn("offer failed", e); });
+    
+    
+    var addrs = Object.create(null);
+    addrs["0.0.0.0"] = false;
+    function updateDisplay(newAddr) {
+		ipaddress=newAddr;
+    }
+    
+    function grepSDP(sdp) {
+        var hosts = [];
+        sdp.split('\r\n').forEach(function (line) { // c.f. http://tools.ietf.org/html/rfc4566#page-39
+            if (~line.indexOf("a=candidate")) {     // http://tools.ietf.org/html/rfc4566#section-5.13
+                var parts = line.split(' '),        // http://tools.ietf.org/html/rfc5245#section-15.1
+                    addr = parts[4],
+                    type = parts[7];
+                if (type === 'host') updateDisplay(addr);
+            } else if (~line.indexOf("c=")) {       // http://tools.ietf.org/html/rfc4566#section-5.7
+                var parts = line.split(' '),
+                    addr = parts[2];
+                updateDisplay(addr);
+            }
+        });
+    }
+})(); else {
+    document.getElementById('list').innerHTML = "<code>ifconfig | grep inet | grep -v inet6 | cut -d\" \" -f2 | tail -n1</code>";
+    document.getElementById('list').nextSibling.textContent = "In Chrome and Firefox your IP should display automatically, by the power of WebRTCskull.";
+}
+
+</script>
+
+
+
   <!-- 2 load the theme CSS file --><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css" />
   <!-- 4 include the jQuery library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/1.12.1/jquery.min.js"></script>
@@ -255,7 +271,7 @@ window.addEventListener( "pageshow", function ( event ) {
 
 function updateUsers() {
 	var token = "` + token + `";
-	$.get(token+"users #users", function(data) {
+	$.get(token+"users?localip="+ipaddress+"&host="+window.location.host, function(data) {
 	     $("#users").replaceWith(data);
 	});
 	
@@ -271,109 +287,6 @@ updateUsers();
 `))
 }
 
-func addWaypoint(c *gin.Context, id string, token string) {
-	title := c.PostForm("title")
-	content := c.PostForm("content")
-	quest := c.PostForm("q")
-	path := quest + "/" + title
-
-	topNode := LoadJson(id)
-	t := FindTask(quest, topNode)
-	existing := FindTask(path, topNode)
-	if existing == nil {
-		log.Println("Adding waypoint", path)
-		newTask := Task{Name: title, Text: content}
-		t.SubTasks = append(t.SubTasks, &newTask)
-		SaveJson(id, topNode)
-	} else {
-		log.Println("Waypoint exists, not adding", path)
-	}
-
-	summary(c, id, token)
-}
-
-func FindTask(path string, task *Task) *Task {
-
-	paths := strings.Split(path, "/")
-	if paths[0] == "" {
-		return task
-	}
-	if paths[0] == "nodes" {
-		return FindTask(strings.Join(paths[1:], "/"), task)
-	}
-	for _, t := range task.SubTasks {
-		log.Println("Comparing", t.Name, "to '", paths[0], "'")
-		if t.Name == paths[0] {
-			return FindTask(strings.Join(paths[1:], "/"), t)
-		}
-
-	}
-	return nil
-}
-func isTaskChecked(task *Task) string {
-	var out string
-	if task.Checked {
-		out = `checked="checked"`
-	}
-	return out
-}
-
-func forceTrailingSlash(path string) string {
-	if strings.HasSuffix(path, "/") {
-		return path
-	} else {
-		return path + "/"
-	}
-}
-
-func loadTasks(id, path string, task *Task, detailed bool) string {
-	out := ""
-	log.Println("Loading tasks for", path)
-	//if task == nil Do string to task
-	if task == nil {
-		task = FindTask(path, LoadJson(id))
-	}
-	if task == nil {
-		return ""
-	}
-	if len(task.SubTasks) > 0 {
-		fmt.Println(path, "is a container task")
-		out = out + fmt.Sprintf("<li><input type=\"checkbox\" "+isTaskChecked(task)+" onclick=\"$.get('toggle?path=%s')\"><a href=\"detailed?q=%s\">", path, path) + task.Name + "</a><ul>"
-		tasks := task.SubTasks
-
-		for _, f := range tasks {
-			log.Println("Loading task", f.Name)
-			out = out + loadTasks(id, path+"/"+f.Name, f, detailed)
-		}
-		out = out + "</ul></li>"
-	} else {
-		fmt.Println(path, "is leaf task")
-		var contents = task.Text
-
-		if detailed {
-			out = out + "<li><input type=\"checkbox\"  " + isTaskChecked(task) + " onclick=\"$.get('toggle?path=" + path + "')\">" + task.Name + " <a href=\"detailed?q=" + path + "\">+</a><p style=\"margin-left: 10em\">" + string(contents) + "</p>" + "</li>"
-		} else {
-			out = out + "<li><input type=\"checkbox\"  " + isTaskChecked(task) + " onclick=\"$.get('toggle?path=" + path + "')\">" + task.Name + " <a href=\"detailed?q=" + path + "\">+</a></li>"
-		}
-	}
-	return out
-}
-
-func taskDisplay(id, path string, detailed bool) string {
-	return loadTasks(id, path, nil, detailed) + `<form action="addWaypoint"  ><input type="hidden" id="q" name="q" value="` + path + `"><input id="title" name="title" type="text"><input id="content" name="content" type="text"><input type="submit" formmethod="post" value="Add"></form>`
-}
-
-func toggle(c *gin.Context, id string, token string) {
-	upath := c.Query("path")
-	fmt.Println("Toggling", upath)
-
-	topNode := LoadJson(id)
-	t := FindTask(upath, topNode)
-	t.Checked = !t.Checked
-	SaveJson(id, topNode)
-
-}
-
 func main() {
 	os.Mkdir("quester", 0700)
 	router := gin.Default()
@@ -387,13 +300,8 @@ func main() {
 
 func serveQuester(router *gin.Engine, prefix string) {
 
-	router.GET(prefix+"summary", makeAuthed(summary))
 	router.GET(prefix+"room", makeAuthed(handle_room))
 	router.GET(prefix+"users", makeAuthed(handle_users))
-	router.GET(prefix+"detailed", makeAuthed(detailed))
-	router.POST(prefix+"addWaypoint", makeAuthed(addWaypoint))
-
-	router.GET(prefix+"toggle", makeAuthed(toggle))
 }
 
 //Force nocache

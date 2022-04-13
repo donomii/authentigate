@@ -339,6 +339,8 @@ func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	req, err := http.NewRequest("PUT", relay.To+api+params, nil)
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
+	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
+	req.Header.Add("X-Real-IP", c.RemoteIP())
 
 	//Copy the bare minimum needed for a post request
 	//FIXME:  Move this into config file, allow configuration per-endpoint
@@ -391,6 +393,8 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 	req, err := http.NewRequest("POST", relay.To+api+params, nil)
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
+	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
+	req.Header.Add("X-Real-IP", c.RemoteIP())
 
 	CopyHeaders := relay.CopyHeaders
 	log.Printf("Forwarding headers %v\n", CopyHeaders)
@@ -401,9 +405,10 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 		log.Printf("Copyheader: %v, %v\n", k, c.Request.Header.Get(k))
 	}
 
-	req.Header.Add("X-Forwarded-Port",fmt.Sprintf( "%v", config.Port))
+	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
 	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
-	//req.Header.Add("X-Real-IP", c.RemoteIP)
+	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
+	req.Header.Add("X-Real-IP", c.RemoteIP())
 	req.Header.Add("Host", "entirety.praeceptamachinae.com")
 
 	log.Printf("Sending Request %+V\n", req)
@@ -465,7 +470,7 @@ func upgradeAndHandle(c *gin.Context, req *http.Request) {
 	defer socket.Close()
 
 	go func() {
-	defer func() {
+		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Socket closed while processing %v: %v", c.Request.URL, r)
 			}
@@ -500,7 +505,7 @@ func upgradeAndHandle(c *gin.Context, req *http.Request) {
 			panic(err)
 		}
 
-			log.Printf("Message %+v\nmt %+v\n", message, mt)
+		log.Printf("Message %+v\nmt %+v\n", message, mt)
 		err = ws.WriteMessage(mt, message)
 		if err != nil {
 			log.Println("error write message: " + err.Error())
@@ -542,6 +547,8 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 
+	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
+	req.Header.Add("X-Real-IP", c.RemoteIP())
 	CopyHeaders := relay.CopyHeaders
 	for _, h := range CopyHeaders {
 		req.Header.Add(h, c.Request.Header.Get(h))
@@ -549,7 +556,7 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 
 	upgradeH := c.Request.Header.Get("upgrade")
 	if upgradeH == "websocket" {
-	log.Printf("upgrade GET api %v, %v, %v\n", id, api, req.URL)
+		log.Printf("upgrade GET api %v, %v, %v\n", id, api, req.URL)
 		upgradeAndHandle(c, req)
 		return
 	}

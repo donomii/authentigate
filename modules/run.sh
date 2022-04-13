@@ -7,10 +7,12 @@ cd shoppingdemo
 cd ..
 
 cd menu
+rm menu
 go build .
 ./menu &
 cd ..
 
 cd presence
+rm presence
 go build .
 ./presence

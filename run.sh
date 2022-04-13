@@ -1,6 +1,7 @@
 #!/bin/sh
 
 echo building authentigate
+rm authentigate
 go build .
 echo starting authentigate
 ./authentigate -develop &
