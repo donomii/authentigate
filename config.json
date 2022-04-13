@@ -74,6 +74,7 @@
 			"Name": "presence",
 			"From": "/secure/:token/presence/*api",
 			"To": "http://localhost:8093/presence",
+			"CopyHeaders": ["Content-Type", "Content-Length", "X-Tinyproxy"],
 			"Tipe": "GET"
 		},
 		{
