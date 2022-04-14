@@ -1,0 +1,11 @@
+[Unit]
+Description=Report computer details to central service
+
+[Service]
+User=root
+WorkingDirectory=/root
+ExecStart=/home/pi/git/authentigate/modules/presence/client/client
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
