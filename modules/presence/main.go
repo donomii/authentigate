@@ -106,7 +106,11 @@ func handle_users(c *gin.Context, id string, token string) {
 
 	}
 	userdata.LastTime = time.Now()
-	userdata.ExternalIPaddress = c.Request.Header["X-Forwarded-For"][0]
+	possibleIPs := c.Request.Header["X-Tinyproxy"]
+	if len(possibleIPs) > 0 {
+		userdata.ExternalIPaddress = possibleIPs[0]
+	}
+	//userdata.ExternalIPaddress = c.Request.Header["X-Forwarded-For"][0]
 	userdata.LocalIPaddress = c.Query("localip")
 
 	room.Users[id] = userdata
