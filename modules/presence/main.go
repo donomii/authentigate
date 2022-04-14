@@ -36,37 +36,6 @@ type Room struct {
 
 var Rooms map[int]Room
 
-type Task struct {
-	Name      string
-	Text      string
-	TimeStamp time.Time
-	Checked   bool
-	SubTasks  []*Task
-}
-
-func LoadJson(id string) *Task {
-	var out *Task
-	res, err := ioutil.ReadFile(fmt.Sprintf("quester/%v.json", id))
-	err = json.Unmarshal(res, &out)
-	if err != nil {
-		log.Println("Could not load quests", err)
-		//panic(err)
-	}
-	if out == nil {
-		t := Task{Name: "Quester", Text: "Quest style task tracking"}
-		out = &t
-	}
-	return out
-}
-
-func SaveJson(id string, tasks *Task) {
-	payload, err := json.Marshal(tasks)
-	if err != nil {
-		panic("Could not marshall quests")
-	}
-	ioutil.WriteFile(fmt.Sprintf("quester/%v.json", id), payload, 0600)
-}
-
 func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		id := c.Request.Header.Get("authentigate-id")
@@ -99,8 +68,8 @@ func render_users(Users UserMap) string {
 		v := Users[k]
 		diff := time.Now().Sub(v.LastTime)
 		//if diff < 60 {
-		levelg := goof.Clamp(255-int(diff.Seconds())*25, 0, 255)
-		levelr := goof.Clamp(int(diff.Seconds())*25, 0, 255)
+		levelg := goof.Clamp(255-int(diff.Seconds())*4, 0, 255)
+		levelr := goof.Clamp(int(diff.Seconds())*4, 0, 255)
 		userHtml = userHtml + fmt.Sprintf("<div><span class='box' style='background-color: #%02x%02x%02x;'>U</span>user %v: %v seconds(<a href=\"http://%v\">%v</a>,<a href=\"http://%v\">%v</a>)</div>", levelr, levelg, 1, k, int(diff.Seconds()), v.ExternalIPaddress, v.ExternalIPaddress, v.LocalIPaddress, v.LocalIPaddress)
 		//}
 	}
