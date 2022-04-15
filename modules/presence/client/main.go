@@ -33,12 +33,25 @@ func ip() string {
 	return "IP not found"
 }
 
+func getWrapper(hostname, ip string) {
+	//Catch all errors and return
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in f", r)
+		}
+	}()
+	//Call server using hostname and ip
+	thing, err := http.Get(fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/2529910190816306683/presence/users?localip=%v&host=%v", ip, hostname))
+	if err != nil {
+		thing.Body.Close()
+	}
+}
+
 func main() {
 	hostname := hostname()
 	ip := ip()
 	for {
-		//Call server using hostname and ip
-		http.Get(fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/2529910190816306683/presence/users?localip=%v&host=%v", ip, hostname))
+		getWrapper(hostname, ip)
 		time.Sleep(time.Second * 10)
 	}
 }
