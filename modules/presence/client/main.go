@@ -6,7 +6,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+
+	"runtime/debug"
 
 	"github.com/donomii/goof"
 )
@@ -38,17 +41,20 @@ func ip() string {
 	return "IP not found"
 }
 
-func getWrapper(hostname, ip string) {
+func getWrapper(token, hostname, ip string) {
 	//Catch all errors and return
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("Recovered in f", r)
+			debug.PrintStack()
 		}
 	}()
 	//Call server using hostname and ip
 	thing, err := http.Get(fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/"+token+"/presence/users?localip=%v&host=%v", ip, hostname))
-	if err != nil {
+	if err == nil {
 		thing.Body.Close()
+	} else {
+		fmt.Println("Error:", err)
 	}
 }
 
@@ -57,16 +63,17 @@ func main() {
 	ip := ip()
 	for {
 		exeDir := goof.ExecutablePath()
-		token_b, _ := ioutil.ReadFile(exeDir + "presence.token")
+		token_b, _ := ioutil.ReadFile(exeDir + "/presence.token")
 		token = string(token_b)
 		if token == "" {
-			token_b, _ := ioutil.ReadFile(goof.HomeDirectory() + ".presence.token")
+			token_b, _ := ioutil.ReadFile(goof.HomeDirectory() + "/.presence.token")
 			token = string(token_b)
 		}
 		if token == "" {
-			panic("Could not find token in " + exeDir + "presence.token or " + goof.HomeDirectory() + ".presence.token")
+			panic("Could not find token in " + exeDir + "/presence.token or " + goof.HomeDirectory() + "/.presence.token")
 		}
-		getWrapper(hostname, ip)
+		token = strings.TrimSuffix(token, "\n") //Fucking unix newlines bullshit
+		getWrapper(token, hostname, ip)
 		time.Sleep(time.Second * 10)
 	}
 }
