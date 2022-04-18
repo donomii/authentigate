@@ -2,11 +2,16 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/donomii/goof"
 )
+
+var token = ""
 
 func hostname() string {
 	hostname, err := os.Hostname()
@@ -41,7 +46,7 @@ func getWrapper(hostname, ip string) {
 		}
 	}()
 	//Call server using hostname and ip
-	thing, err := http.Get(fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/2529910190816306683/presence/users?localip=%v&host=%v", ip, hostname))
+	thing, err := http.Get(fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/"+token+"/presence/users?localip=%v&host=%v", ip, hostname))
 	if err != nil {
 		thing.Body.Close()
 	}
@@ -51,6 +56,16 @@ func main() {
 	hostname := hostname()
 	ip := ip()
 	for {
+		exeDir := goof.ExecutablePath()
+		token_b, _ := ioutil.ReadFile(exeDir + "presence.token")
+		token = string(token_b)
+		if token == "" {
+			token_b, _ := ioutil.ReadFile(goof.HomeDirectory() + ".presence.token")
+			token = string(token_b)
+		}
+		if token == "" {
+			panic("Could not find token in " + exeDir + "presence.token or " + goof.HomeDirectory() + ".presence.token")
+		}
 		getWrapper(hostname, ip)
 		time.Sleep(time.Second * 10)
 	}
