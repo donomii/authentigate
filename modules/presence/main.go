@@ -78,7 +78,7 @@ func render_users(Users UserMap) string {
 
 }
 
-func handle_users(c *gin.Context, id string, token string) {
+func get_data(c *gin.Context, id string, token string) (Room, UserData) {
 	room_lock.Lock()
 	defer room_lock.Unlock()
 	room_id, _ := strconv.Atoi(c.Query("id"))
@@ -89,8 +89,7 @@ func handle_users(c *gin.Context, id string, token string) {
 	room, ok := Rooms[room_id]
 	if !ok {
 		Rooms[room_id] = Room{Users: UserMap{}}
-		handle_users(c, id, token)
-		return
+		room = Rooms[room_id]
 	}
 
 	user_id := c.Query("host")
@@ -116,45 +115,16 @@ func handle_users(c *gin.Context, id string, token string) {
 	userdata.LocalIPaddress = c.Query("localip")
 
 	room.Users[id] = userdata
+	return room, userdata
+}
+func handle_users(c *gin.Context, id string, token string) {
+	room, _ := get_data(c, id, token)
 
 	c.Writer.Write([]byte(render_users(room.Users)))
 }
 
 func handle_room(c *gin.Context, id string, token string) {
-	room_lock.Lock()
-	defer room_lock.Unlock()
-	room_id, _ := strconv.Atoi(c.Query("id"))
-
-	if Rooms == nil {
-		Rooms = map[int]Room{}
-	}
-	room, ok := Rooms[room_id]
-	if !ok {
-		Rooms[room_id] = Room{Users: UserMap{}}
-		handle_room(c, id, token)
-		return
-	}
-
-	user_id := c.Query("host")
-	if user_id != "" {
-		id = user_id
-	} else {
-		user_id = c.Query("user")
-		if user_id != "" {
-			id = user_id
-		}
-	}
-	userdata, ok := room.Users[id]
-	if !ok {
-		userdata = UserData{}
-		room.Users[id] = userdata
-	}
-	userdata.LastTime = time.Now()
-	possibleIPs := c.Request.Header["X-Tinyproxy"]
-	if len(possibleIPs) > 0 {
-		userdata.ExternalIPaddress = possibleIPs[0]
-	}
-	userdata.LocalIPaddress = ""
+	room, _ := get_data(c, id, token)
 
 	userHtml := render_users(room.Users)
 
