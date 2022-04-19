@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/donomii/goof"
@@ -33,6 +34,7 @@ type Room struct {
 }
 
 var Rooms map[int]Room
+var room_lock sync.Mutex
 
 func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Context) {
 	return func(c *gin.Context) {
@@ -77,6 +79,8 @@ func render_users(Users UserMap) string {
 }
 
 func handle_users(c *gin.Context, id string, token string) {
+	room_lock.Lock()
+	defer room_lock.Unlock()
 	room_id, _ := strconv.Atoi(c.Query("id"))
 
 	if Rooms == nil {
@@ -113,12 +117,12 @@ func handle_users(c *gin.Context, id string, token string) {
 
 	room.Users[id] = userdata
 
-	log.Printf("Roomdata: %v", room)
-	log.Printf("Request: %v", c.Request)
 	c.Writer.Write([]byte(render_users(room.Users)))
 }
 
 func handle_room(c *gin.Context, id string, token string) {
+	room_lock.Lock()
+	defer room_lock.Unlock()
 	room_id, _ := strconv.Atoi(c.Query("id"))
 
 	if Rooms == nil {
