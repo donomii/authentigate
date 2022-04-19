@@ -3,13 +3,13 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strings"
 	"time"
-
-	"runtime/debug"
 
 	"github.com/donomii/goof"
 )
@@ -25,20 +25,34 @@ func hostname() string {
 }
 
 //Get local ip address
-func ip() string {
+func ip() (ipaddr string) {
+	//Catch all errors and return
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in f", r)
+			debug.PrintStack()
+		}
+	}()
+	ipaddr = "IP.address.not.found"
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return "IP not found"
+		log.Println("Could not get local ip address because:", err)
+		return "IP.address.not.found"
 	}
 	for _, address := range addrs {
 		// check the address type and if it is not a loopback the display it
 		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String()
+			if ok {
+				if ipnet.IP.To4() != nil {
+					ipaddr = ipnet.IP.String()
+					return ipaddr
+				}
+			} else {
+				log.Println("Could not get local ip address")
 			}
 		}
 	}
-	return "IP not found"
+	return "IP.address.not.found"
 }
 
 func getWrapper(token, hostname, ip string) {
@@ -50,7 +64,9 @@ func getWrapper(token, hostname, ip string) {
 		}
 	}()
 	//Call server using hostname and ip
-	thing, err := http.Get(fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/"+token+"/presence/users?localip=%v&host=%v", ip, hostname))
+	callStr := fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/"+token+"/presence/users?localip=%v&host=%v", ip, hostname)
+	log.Println(callStr)
+	thing, err := http.Get(callStr)
 	if err == nil {
 		thing.Body.Close()
 	} else {
