@@ -43,14 +43,11 @@ func ip() (ipaddrs []string) {
 
 	for _, address := range addrs {
 		// check the address type and if it is not a loopback the display it
-		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ok {
-				if ipnet.IP.To4() != nil {
-					ipaddr1 := ipnet.IP.String()
-					ipaddrs = append(ipaddrs, ipaddr1)
-				}
-			} else {
-				log.Println("Could not get local ip address")
+		if ipnet := net.ParseIP(address.String()); !ipnet.IsLoopback() {
+			if ipnet.To4() != nil {
+				ipaddr1 := ipnet.String()
+				ipaddrs = append(ipaddrs, ipaddr1)
+
 			}
 		}
 	}
