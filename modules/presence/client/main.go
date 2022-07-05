@@ -25,7 +25,7 @@ func hostname() string {
 }
 
 //Get local ip address
-func ip() (ipaddr string) {
+func ip() (ipaddrs []string) {
 	//Catch all errors and return
 	defer func() {
 		if r := recover(); r != nil {
@@ -33,33 +33,41 @@ func ip() (ipaddr string) {
 			debug.PrintStack()
 		}
 	}()
-	ipaddr = "IP.address.not.found"
+	ipaddrs = []string{}
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		log.Println("Could not get local ip address because:", err)
-		return "IP.address.not.found"
+		//return "IP.address.error"
+		//Fall thorugh to shell script
 	}
+
 	for _, address := range addrs {
 		// check the address type and if it is not a loopback the display it
-		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ok {
-				if ipnet.IP.To4() != nil {
-					ipaddr = ipnet.IP.String()
-					return ipaddr
-				}
-			} else {
-				log.Println("Could not get local ip address")
+		if ipnet := net.ParseIP(address.String()); !ipnet.IsLoopback() {
+			if ipnet.To4() != nil {
+				ipaddr1 := ipnet.String()
+				ipaddrs = append(ipaddrs, ipaddr1)
+
 			}
 		}
 	}
-	ipaddr = goof.Shell("ifconfig | grep 'inet ' | grep -v 127.0.0.1 | awk '{print $2}'")
-	if len(ipaddr) > 7 {
-		return ipaddr
+	if len(ipaddrs) > 0 {
+		return ipaddrs
 	}
-	return "IP.address.not.found"
+	ipaddr_str := goof.Shell("/usr/sbin/ifconfig | /usr/bin/grep 'inet' | /usr/bin/grep -v 127.0.0.1 | /usr/bin/awk '{print $2}'")
+	for _, ipaddr1 := range strings.Split(ipaddr_str, "\n") {
+		if ipaddr1 != "" {
+			ipaddrs = append(ipaddrs, ipaddr1)
+		}
+	}
+	if len(ipaddrs) > 0 {
+		return ipaddrs
+	}
+
+	return []string{"IP.address.not.found"}
 }
 
-func getWrapper(token, hostname, ip string) {
+func getWrapper(token, hostname string, ip []string) {
 	//Catch all errors and return
 	defer func() {
 		if r := recover(); r != nil {
@@ -68,7 +76,8 @@ func getWrapper(token, hostname, ip string) {
 		}
 	}()
 	//Call server using hostname and ip
-	callStr := fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/"+token+"/presence/users?localip=%v&host=%v", ip, hostname)
+	ips := strings.Join(ip, ",")
+	callStr := fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/"+token+"/presence/users?localip=%v&host=%v", ips, hostname)
 	log.Println(callStr)
 	thing, err := http.Get(callStr)
 	if err == nil {
