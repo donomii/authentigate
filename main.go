@@ -139,7 +139,7 @@ func main() {
 	var f *os.File
 	f, err = os.Create("accessLog")
 	check(err)
-	accessLog = bufio.NewWriter(f)
+	accessLog = bufio.NewWriterSize(f, 999999)  //Golang!
 	flag.BoolVar(&develop, "develop", false, "Allow log in with no password")
 	flag.StringVar(&baseUrl, "base-url", baseUrl, "The top level url for the authenticated section of your site")
 	flag.Parse()
@@ -569,7 +569,8 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Header("Content-Disposition", resp.Header.Get("Content-Disposition"))
 	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	logMess := []byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n")
+	accessLog.Write(logMess)
 }
 
 // Redirect to correct oAuth URL

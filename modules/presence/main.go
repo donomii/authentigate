@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"fmt"
 	"log"
 	"net/http"
@@ -24,7 +25,7 @@ var safe bool = false
 type UserData struct {
 	LastTime          time.Time
 	ExternalIPaddress string
-	LocalIPaddress    string
+	LocalIPaddresses    []string
 }
 
 type UserMap map[string]UserData
@@ -70,7 +71,11 @@ func render_users(Users UserMap) string {
 		//if diff < 60 {
 		levelg := goof.Clamp(255-int(diff.Seconds())*4, 0, 255)
 		levelr := goof.Clamp(int(diff.Seconds())*4, 0, 255)
-		userHtml = userHtml + fmt.Sprintf("<div><span class='box' style='background-color: #%02x%02x%02x;'>U</span>user %v: %v seconds(<a href=\"http://%v\">%v</a>,<a href=\"http://%v\">%v</a>)</div>", levelr, levelg, 1, k, int(diff.Seconds()), v.ExternalIPaddress, v.ExternalIPaddress, v.LocalIPaddress, v.LocalIPaddress)
+		iplinks := []string{}
+		for _, ip := range v.LocalIPaddresses {
+			iplinks = append(iplinks, fmt.Sprintf("<a href=\"http://%v\">%v</a>", ip,ip))
+		}
+		userHtml = userHtml + fmt.Sprintf("<div><span class='box' style='background-color: #%02x%02x%02x;'>U</span>user %v: %v seconds(<a href=\"http://%v\">%v</a>,%v)</div>", levelr, levelg, 1, k, int(diff.Seconds()), v.ExternalIPaddress, v.ExternalIPaddress, iplinks)
 		//}
 	}
 	userHtml = userHtml + "</div>"
@@ -79,8 +84,6 @@ func render_users(Users UserMap) string {
 }
 
 func get_data(c *gin.Context, id string, token string) (Room, UserData) {
-	room_lock.Lock()
-	defer room_lock.Unlock()
 	room_id, _ := strconv.Atoi(c.Query("id"))
 
 	if Rooms == nil {
@@ -112,18 +115,25 @@ func get_data(c *gin.Context, id string, token string) (Room, UserData) {
 		userdata.ExternalIPaddress = possibleIPs[0]
 	}
 	//userdata.ExternalIPaddress = c.Request.Header["X-Forwarded-For"][0]
-	userdata.LocalIPaddress = c.Query("localip")
+	LocalIPaddresses := c.Query("localip")
+	ips := strings.Split(LocalIPaddresses, ",")
+
+	userdata.LocalIPaddresses = ips
 
 	room.Users[id] = userdata
 	return room, userdata
 }
 func handle_users(c *gin.Context, id string, token string) {
+	room_lock.Lock()
+	defer room_lock.Unlock()
 	room, _ := get_data(c, id, token)
 
 	c.Writer.Write([]byte(render_users(room.Users)))
 }
 
 func handle_room(c *gin.Context, id string, token string) {
+	room_lock.Lock()
+	defer room_lock.Unlock()
 	room, _ := get_data(c, id, token)
 
 	userHtml := render_users(room.Users)
