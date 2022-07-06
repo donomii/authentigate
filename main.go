@@ -189,6 +189,18 @@ func main() {
 			}
 
 		}
+
+		//These are required to handle oauth2
+		hostRouter.GET("/auth/:provider", redirectHandler)
+		hostRouter.GET("/auth/:provider/callback", callbackHandler)
+
+		//Drop CSS and js libraries in here
+		hostRouter.Static("/files", "./files")
+		hostRouter.Static("/favicon.ico", "./favicon.ico")
+		if develop {
+			hostRouter.GET("/develop/auth/callback", developCallbackHandler)
+		}
+
 		//Add hostRouter to the chain
 		routerChain = append(routerChain, hostRouter)
 		routerHash[hostname] = hostRouter
@@ -221,17 +233,6 @@ func main() {
 		}
 	}
 
-	//These are required to handle oauth2
-	defaultRouter.GET("/auth/:provider", redirectHandler)
-	defaultRouter.GET("/auth/:provider/callback", callbackHandler)
-
-	//Drop CSS and js libraries in here
-	defaultRouter.Static("/files", "./files")
-	defaultRouter.Static("/favicon.ico", "./favicon.ico")
-	if develop {
-		defaultRouter.GET("/develop/auth/callback", developCallbackHandler)
-	}
-
 	handleAll := func(c *gin.Context) {
 		log.Printf("Known hosts: \n")
 		for hostname, _ := range routerHash {
@@ -249,6 +250,7 @@ func main() {
 			hostRouter = routerHash["*"]
 			log.Printf("Using default router\n")
 		}
+		log.Println(format_clf(c, "", "", ""))
 		hostRouter.HandleContext(c)
 	}
 
