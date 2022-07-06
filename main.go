@@ -162,22 +162,30 @@ func main() {
 		if hostname == "" {
 			hostname = "*"
 		} else {
-			redirectHash[hostname] = append(redirectHash[hostname], redirect)
 		}
+			redirectHash[hostname] = append(redirectHash[hostname], redirect)
 	}
 
 	routerChain := []*gin.Engine{}
 	routerHash := map[string]*gin.Engine{}
+
+	defaultRouter := routerHash["*"]
+	if defaultRouter == nil {
+		defaultRouter = gin.New()
+		defaultRouter.HandleMethodNotAllowed = false
+		routerHash["*"] = defaultRouter
+	}
+
 	//Loop over redirecthash
 	for hostname, redirects := range redirectHash {
-		log.Printf("Creating router for %v", hostname)
+		fmt.Printf("Creating router for %v", hostname)
 		//Make a new gin middleware for the host
 		hostRouter := gin.New()
 		hostRouter.HandleMethodNotAllowed = false
 
 		for _, loopPtr := range redirects {
 			relay := loopPtr
-			fmt.Printf("Adding route from %v, to %v\n", relay.From, relay.To)
+			fmt.Printf("Adding route from %v, to %v in host %v\n", relay.From, relay.To, hostname)
 			switch relay.Tipe {
 			case "GET":
 				hostRouter.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay))
@@ -191,6 +199,7 @@ func main() {
 
 		}
 
+		fmt.Println("Adding Oath2 handlers to", hostname)
 		//These are required to handle oauth2
 		hostRouter.GET("/auth/:provider", redirectHandler)
 		hostRouter.GET("/auth/:provider/callback", callbackHandler)
@@ -208,13 +217,6 @@ func main() {
 	}
 
 	log.Println("Configuring default router")
-	defaultRouter := routerHash["*"]
-	if defaultRouter == nil {
-		defaultRouter = gin.New()
-		defaultRouter.HandleMethodNotAllowed = false
-		routerHash["*"] = defaultRouter
-	}
-
 	defaultRouter.GET("/", frontPageHandler)
 	//User management pages
 	defaultRouter.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, nil))
