@@ -238,7 +238,8 @@ func main() {
 			//log.Printf("Using default router\n")
 		}
 
-		log.Println(format_clf(c, "", "", ""))
+		fmt.Println(format_clf(c, "hostRouter="+host, "", ""))
+
 		hostRouter.HandleContext(c)
 	}
 
@@ -254,6 +255,7 @@ func main() {
 		muxRouter.Run("127.0.0.1:8000")
 	} else {
 		log.Println("Startin mux router in prod mode")
+		gin.SetMode(gin.ReleaseMode)
 		log.Fatal(autotls.Run(muxRouter, config.HostNames...))
 	}
 }
