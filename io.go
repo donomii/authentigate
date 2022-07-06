@@ -26,8 +26,8 @@ func LoadConfig(file string) *Config {
 	var config Config
 	raw, err := ioutil.ReadFile(file)
 	if err != nil {
-		log.Printf("Unable to read from file %v", file)
-		return nil
+		log.Printf("Unable to read from file %a: %v", file, err)
+		panic(fmt.Sprintf("Unable to read from file %a: %v", file, err))
 	}
 
 	json.Unmarshal(raw, &config)
