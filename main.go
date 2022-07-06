@@ -20,8 +20,8 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/danilopolani/gocialite"
+	"github.com/donomii/gin"
 	"github.com/gin-gonic/autotls"
-	"github.com/gin-gonic/gin"
 	uuid "github.com/satori/go.uuid"
 
 	"github.com/gorilla/websocket"
@@ -113,8 +113,8 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, b
 }
 
 type Redirect struct {
-	From, To, Tipe, Name string
-	CopyHeaders          []string
+	Host, From, To, Tipe, Name string
+	CopyHeaders                []string
 }
 type Config struct {
 	Redirects []Redirect
@@ -139,7 +139,7 @@ func main() {
 	var f *os.File
 	f, err = os.Create("accessLog")
 	check(err)
-	accessLog = bufio.NewWriterSize(f, 999999)  //Golang!
+	accessLog = bufio.NewWriterSize(f, 999999) //Golang!
 	flag.BoolVar(&develop, "develop", false, "Allow log in with no password")
 	flag.StringVar(&baseUrl, "base-url", baseUrl, "The top level url for the authenticated section of your site")
 	flag.Parse()
@@ -154,43 +154,117 @@ func main() {
 	}
 
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
-	router := gin.Default()
 
-	router.GET("/", frontPageHandler)
+	redirectHash := map[string][]Redirect{}
+	//Loop through redirects, add them to redirectHash, keyed by host
+	for _, redirect := range config.Redirects {
+		hostname := redirect.Host
+		if hostname == "" {
+			hostname = "*"
+		} else {
+			redirectHash[hostname] = append(redirectHash[hostname], redirect)
+		}
+	}
+
+	routerChain := []*gin.Engine{}
+	routerHash := map[string]*gin.Engine{}
+	//Loop over redirecthash
+	for hostname, redirects := range redirectHash {
+		//Make a new gin middleware for the host
+		hostRouter := gin.New()
+		hostRouter.HandleMethodNotAllowed = false
+
+		for _, loopPtr := range redirects {
+			relay := loopPtr
+			fmt.Printf("Adding route from %v, to %v\n", relay.From, relay.To)
+			switch relay.Tipe {
+			case "GET":
+				hostRouter.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay))
+			case "POST":
+				hostRouter.POST(relay.From, makeAuthedRelay(relayPostHandler, &relay))
+			case "PUT":
+				hostRouter.PUT(relay.From, makeAuthedRelay(relayPutHandler, &relay))
+			default:
+				panic("Unsupported type for relay")
+			}
+
+		}
+		//Add hostRouter to the chain
+		routerChain = append(routerChain, hostRouter)
+		routerHash[hostname] = hostRouter
+	}
+
+	defaultRouter := routerHash["*"]
+	if defaultRouter == nil {
+		defaultRouter = gin.New()
+		defaultRouter.HandleMethodNotAllowed = false
+		routerHash["*"] = defaultRouter
+	}
+
+	defaultRouter.GET("/", frontPageHandler)
 	//User management pages
-	router.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, nil))
-	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, nil))
+	defaultRouter.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, nil))
+	defaultRouter.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, nil))
 
 	for _, loopPtr := range config.Redirects {
 		relay := loopPtr
 		fmt.Printf("Adding route from %v, to %v\n", relay.From, relay.To)
 		switch relay.Tipe {
 		case "GET":
-			router.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay))
+			defaultRouter.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay))
 		case "POST":
-			router.POST(relay.From, makeAuthedRelay(relayPostHandler, &relay))
+			defaultRouter.POST(relay.From, makeAuthedRelay(relayPostHandler, &relay))
 		case "PUT":
-			router.PUT(relay.From, makeAuthedRelay(relayPutHandler, &relay))
+			defaultRouter.PUT(relay.From, makeAuthedRelay(relayPutHandler, &relay))
 		default:
 			panic("Unsupported type for relay")
 		}
 	}
 
 	//These are required to handle oauth2
-	router.GET("/auth/:provider", redirectHandler)
-	router.GET("/auth/:provider/callback", callbackHandler)
+	defaultRouter.GET("/auth/:provider", redirectHandler)
+	defaultRouter.GET("/auth/:provider/callback", callbackHandler)
 
 	//Drop CSS and js libraries in here
-	router.Static("/files", "./files")
-	router.Static("/favicon.ico", "./favicon.ico")
+	defaultRouter.Static("/files", "./files")
+	defaultRouter.Static("/favicon.ico", "./favicon.ico")
 	if develop {
-		router.GET("/develop/auth/callback", developCallbackHandler)
+		defaultRouter.GET("/develop/auth/callback", developCallbackHandler)
 	}
 
+	handleAll := func(c *gin.Context) {
+		log.Printf("Known hosts: \n")
+		for hostname, _ := range routerHash {
+			log.Printf("%v\n", hostname)
+		}
+		host := c.Request.Host
+		if host == "" {
+			host = "*"
+		}
+
+		log.Printf("Matching host: %v\n", host)
+
+		hostRouter := routerHash[host]
+		if hostRouter == nil {
+			hostRouter = routerHash["*"]
+			log.Printf("Using default router\n")
+		}
+		hostRouter.HandleContext(c)
+	}
+
+	muxRouter := gin.New()
+	muxRouter.Use(gin.Logger(), gin.Recovery(), handleAll)
+	muxRouter.ForceHandler = handleAll
+	muxRouter.Handle("GET", "/*blah", handleAll)
+	muxRouter.Handle("POST", "/*blah", handleAll)
+	muxRouter.Handle("PUT", "/*blah", handleAll)
+
 	if develop {
-		router.Run("127.0.0.1:8000")
+		log.Println("Startin mux router in dev mode")
+		muxRouter.Run("127.0.0.1:8000")
 	} else {
-		log.Fatal(autotls.Run(router, config.HostNames...))
+		log.Println("Startin mux router in prod mode")
+		log.Fatal(autotls.Run(muxRouter, config.HostNames...))
 	}
 }
 
