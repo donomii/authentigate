@@ -170,6 +170,7 @@ func main() {
 	routerHash := map[string]*gin.Engine{}
 	//Loop over redirecthash
 	for hostname, redirects := range redirectHash {
+		log.Printf("Creating router for %v", hostname)
 		//Make a new gin middleware for the host
 		hostRouter := gin.New()
 		hostRouter.HandleMethodNotAllowed = false
@@ -206,6 +207,7 @@ func main() {
 		routerHash[hostname] = hostRouter
 	}
 
+	log.Println("Configuring default router")
 	defaultRouter := routerHash["*"]
 	if defaultRouter == nil {
 		defaultRouter = gin.New()
@@ -218,38 +220,24 @@ func main() {
 	defaultRouter.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, nil))
 	defaultRouter.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, nil))
 
-	for _, loopPtr := range config.Redirects {
-		relay := loopPtr
-		fmt.Printf("Adding route from %v, to %v\n", relay.From, relay.To)
-		switch relay.Tipe {
-		case "GET":
-			defaultRouter.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay))
-		case "POST":
-			defaultRouter.POST(relay.From, makeAuthedRelay(relayPostHandler, &relay))
-		case "PUT":
-			defaultRouter.PUT(relay.From, makeAuthedRelay(relayPutHandler, &relay))
-		default:
-			panic("Unsupported type for relay")
-		}
-	}
-
 	handleAll := func(c *gin.Context) {
-		log.Printf("Known hosts: \n")
-		for hostname, _ := range routerHash {
-			log.Printf("%v\n", hostname)
-		}
+		//log.Printf("Known hosts: \n")
+		//for hostname, _ := range routerHash {
+		//log.Printf("%v\n", hostname)
+		//}
 		host := c.Request.Host
 		if host == "" {
 			host = "*"
 		}
 
-		log.Printf("Matching host: %v\n", host)
+		//log.Printf("Matching host: %v\n", host)
 
 		hostRouter := routerHash[host]
 		if hostRouter == nil {
 			hostRouter = routerHash["*"]
-			log.Printf("Using default router\n")
+			//log.Printf("Using default router\n")
 		}
+
 		log.Println(format_clf(c, "", "", ""))
 		hostRouter.HandleContext(c)
 	}
