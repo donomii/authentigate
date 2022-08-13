@@ -47,11 +47,7 @@ func ip() (ipaddrs []string) {
 			if ipnet.To4() != nil {
 				ipaddr1 := ipnet.String()
 				ipaddrs = append(ipaddrs, ipaddr1)
-			}
 
-			if ipnet.To16() != nil {
-				ipaddr1 := ipnet.String()
-				ipaddrs = append(ipaddrs, ipaddr1)
 			}
 		}
 	}
