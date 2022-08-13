@@ -125,8 +125,9 @@
 	"HostNames": [
 		"entirety.praeceptamachinae.com",
 		"garden.praeceptamachinae.com",
-		"demo.praeceptamachinae.com"
-		"earthti.de"
+		"demo.praeceptamachinae.com",
+		"earthti.de",
+		"www.earthti.de"
 	],
 	"LogFile": "accessLog"
 }
