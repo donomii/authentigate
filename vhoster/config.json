@@ -1,0 +1,23 @@
+{
+	"Redirects": [
+		{
+			"Name": "earthti.de",
+			"Host": "earthti.de",
+			"To": "http://localhost:98",
+			"CopyHeaders": "Authorization"
+		},
+		{
+			"Name": "entirety",
+			"Host": "praeceptamachinae.com",
+			"To": "http://localhost:8093/presence",
+			"CopyHeaders": ["Content-Type", "Content-Length", "X-Tinyproxy"]
+		}
+	],
+	"Port": 97,
+	"HostNames": [
+		"entirety.praeceptamachinae.com",
+		"garden.praeceptamachinae.com",
+		"earthti.de"
+	],
+	"LogFile": "accessLog"
+}
