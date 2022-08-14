@@ -1,24 +1,6 @@
 {
 	"Redirects": [
 		{
-			"Name": "earthti.de",
-			"Host": "earthti.de",
-			"From": "/",
-			"To": "http://localhost:98",
-			"CopyHeaders": "Authorization",
-			"Tipe": "GET"
-		},
-		{
-			"Name": "earthti.de",
-			"Host": "earthti.de",
-			"From": "/",
-			"To": "http://localhost:98",
-			"CopyHeaders": "Authorization",
-			"Tipe": "POST"
-		},
-
-
-		{
 			"Name": "grafana",
 			"From": "/secure/:token/grafana/*api",
 			"To": "http://localhost:9090",
