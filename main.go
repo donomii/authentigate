@@ -84,7 +84,7 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, b
 				log.Printf("Failure while processing %v: %v", c.Request.URL, r)
 				debug.PrintStack()
 				c.Status(500)
-				displayPage(c, "", "files/BackendFailure.html", nil)
+				displayPage(c, "", "files/BackendFailure.html", nil, nil)
 			}
 		}()
 
@@ -196,28 +196,14 @@ func main() {
 
 // Show homepage with login URL
 func frontPageHandler(c *gin.Context) {
-	extra := ""
+	subs := map[string]string{}
 	if develop {
-		extra = "<hr/><a href='/develop/auth/callback'><button>Login with no password</button></a><br>"
+	
+		subs["DEVELOPER"] =	"<hr/><a href='/develop/auth/callback'><button>Login with no password</button></a><br>"
+	}else {
+		subs["DEVELOPER"] =	""
 	}
-	c.Writer.Write([]byte("<html><head><title>Authentigate</title></head><body>" +
-		"<a href='/auth/github'><button>Login with GitHub</button></a><br>" +
-		//"<a href='/auth/linkedin'><button>Login with LinkedIn</button></a><br>" +
-		"<a href='/auth/google'><button>Login with Google</button></a><br>" +
-		"<a href='/auth/slack'><button>Login with Slack</button></a><br>" +
-		"<hr/>" +
-		"<a href='/auth/github'><button>Sign up with GitHub</button></a><br>" +
-		//"<a href='/auth/linkedin'><button>Sign up with LinkedIn</button></a><br>" +
-		"<a href='/auth/google'><button>Sign up with Google</button></a><br>" +
-		"<a href='/auth/slack'><button>Sign up with Slack</button></a><br>" +
-		extra +
-		"</body></html>"))
-	/*
-		"<a href='/auth/amazon'><button>Login with Amazon</button></a><br>" +
-		"<a href='/auth/bitbucket'><button>Login with Bitbucket</button></a><br>" +
-		"<a href='/auth/facebook'><button>Login with Facebook</button></a><br>" +
-	*/
-
+		displayPage(c, "", "files/frontpage.html" ,  nil, subs)
 }
 
 //Given a session token, find the authentigate id
@@ -274,7 +260,7 @@ func idToSessionToken(id string) string {
 //Show the user their revocable token
 func tokenShowHandler(c *gin.Context, blah string, token string, relay *Redirect, useCookie bool) {
 	sessionID := c.Query("id")
-	displayPage(c, sessionID, "files/showToken.html", nil)
+	displayPage(c, sessionID, "files/showToken.html", nil, nil)
 }
 
 //Show the user the successfull login message
@@ -284,7 +270,8 @@ func displayLoginPage(c *gin.Context, id string, sessionToken string) {
 		//Add switch here for cookie/url token mode
 		"c",
 		"files/loginSuccessful.html",
-		map[string]string{"AuthentigateSessionToken": sessionToken})
+		map[string]string{"AuthentigateSessionToken": sessionToken},
+	nil)
 }
 
 func setupNewUser(c *gin.Context, foreignID string, token string) string {
@@ -305,15 +292,18 @@ func setupNewUser(c *gin.Context, foreignID string, token string) string {
 
 func newTokenHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
 	sessionToken := newToken(id)
-	displayPage(c, sessionToken, "files/showToken.html", nil)
+	displayPage(c, sessionToken, "files/showToken.html", nil,nil)
 }
 
 //Display a html file, inserting the revocable session token as needed
-func displayPage(c *gin.Context, token, filename string, cookies map[string]string) {
+func displayPage(c *gin.Context, token, filename string, cookies map[string]string, subs map[string]string) {
 	templateb, _ := ioutil.ReadFile(filename)
 	template := string(templateb)
 	template = templateSet(template, "TOKEN", token)
 	template = templateSet(template, "BASE", baseUrl)
+	for k, v := range subs {
+		template = templateSet(template, k, v)
+	}
 	if cookies != nil {
 		fmt.Printf("Setting cookies %v\n", cookies)
 		for cookieName, cookieValue := range cookies {
