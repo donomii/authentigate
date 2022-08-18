@@ -66,8 +66,11 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := MyContext{Writer: w, Request: *r}
 	switch r.Method {
 	case "GET":
+		log.Println("GET method")
 		for _, v := range config.Redirects {
-			if strings.HasSuffix(c.Request.URL.Host,v.Host) {
+			//log.Println("Comparing ", c.Request.Host, "and", v.Host)
+			if strings.HasSuffix(c.Request.Host,v.Host) {
+			//log.Println("Relaying for "+v.Host)
 			relayGetHandler(&c,&v)
 		}
 	
@@ -244,9 +247,13 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 // Redirect to default microservice, using GET
 func relayGetHandler(c *MyContext, relay *Redirect) {
 
-	client := &http.Client{}
+	client := &http.Client{
+	    CheckRedirect: func(req *http.Request, via []*http.Request) error {
+        return http.ErrUseLastResponse
+    },
+}
 
-	path := c.Request.URL.Path
+	path := c.Request.URL.RequestURI()
 
 	//TODO make this configurable from a file
 	req, err := http.NewRequest("GET", relay.To+path, nil)
@@ -261,13 +268,15 @@ func relayGetHandler(c *MyContext, relay *Redirect) {
 
 	
 
-	log.Printf("redirect GET  %v\n", req.URL)
+	log.Printf("redirect GET %v to %v\n", c.Request.URL, req.URL)
 	resp, err := client.Do(req)
 	check(err)
 	respData, err := ioutil.ReadAll(resp.Body)
 
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Header("Content-Disposition", resp.Header.Get("Content-Disposition"))
+	for k,v := range resp.Header {
+		c.Writer.Header()[k]=v
+	}
+	c.Status(resp.StatusCode)
 	c.Writer.Write(respData)
 	logMess := []byte(format_clf(c, "", fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n")
 	accessLog.Write(logMess)

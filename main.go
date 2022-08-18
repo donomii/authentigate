@@ -122,6 +122,7 @@ type Config struct {
 	BaseUrl   string
 	HostNames []string
 	LogFile   string
+	Secure bool
 }
 
 var config *Config
@@ -190,7 +191,11 @@ func main() {
 	if develop {
 		router.Run("127.0.0.1:8000")
 	} else {
-		log.Fatal(autotls.Run(router, config.HostNames...))
+		if config.Secure {
+			log.Fatal(autotls.Run(router, config.HostNames...))
+		} else {
+			router.Run(fmt.Sprintf("127.0.0.1:%v",config.Port))
+		}
 	}
 }
 
