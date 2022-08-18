@@ -1,0 +1,25 @@
+<html><head><title>Authentigate</title>
+<script>
+	function flip(divName1, divName2) {
+    var x1 = document.getElementById(divName1);
+	var x2 = document.getElementById(divName2);
+    x1.style.display = "none";
+    x2.style.display = "block";
+ 
+} 
+</script></head><body>
+<div id="login1" style="display: block;" onclick="flip('login1','login2')"><button>Login</button></div>
+	<div id="login2" style="display: none">
+		<a href='/auth/github'><button>Login with GitHub</button></a>
+		<a href='/auth/google'><button>Login with Google</button></a>
+		<a href='/auth/slack'><button>Login with Slack</button></a>
+		</div>
+		<hr/>
+		<div id="signup1" style="display: block;" onclick="flip('signup1','signup2')"><button>Sign up</button></div>
+		<div id="signup2" style="display: none">
+		<a href='/auth/github'><button>Sign up with GitHub</button></a>
+		<a href='/auth/google'><button>Sign up with Google</button></a>
+		<a href='/auth/slack'><button>Sign up with Slack</button></a>
+		</div>
+		DEVELOPER
+		</body></html>
