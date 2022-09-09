@@ -374,6 +374,7 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 
 	api := c.Param("api")
 	log.Printf("POST api : %v with id %v\n", api, id)
+	fmt.Printf("POST api : %v with id %v\n", api, id)
 	bodyData, err := ioutil.ReadAll(c.Request.Body)
 	if err != nil {
 		panic(err)
