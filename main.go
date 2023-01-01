@@ -20,8 +20,8 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/danilopolani/gocialite"
-	"github.com/gin-gonic/autotls"
 	"github.com/donomii/gin"
+	"github.com/gin-gonic/autotls"
 	uuid "github.com/satori/go.uuid"
 
 	"github.com/gorilla/websocket"
@@ -46,7 +46,7 @@ var upGrader = websocket.Upgrader{
 
 var gocial = gocialite.NewDispatcher()
 
-//The url of the top of the authenticated part of your website
+// The url of the top of the authenticated part of your website
 var baseUrl string = "https://entirety.praeceptamachinae.com/secure/"
 var develop = false
 var accessLog io.Writer
@@ -61,21 +61,21 @@ type authDB struct {
 
 var b *authDB
 
-//Turn errors into panics so we can catch them in the otp level handler and log them
+// Turn errors into panics so we can catch them in the otp level handler and log them
 func check(e error) {
 	if e != nil {
 		panic(e)
 	}
 }
 
-//Create a log message in combined log format
+// Create a log message in combined log format
 func format_clf(c *gin.Context, id, responseCode, responseSize string) string {
 	return fmt.Sprintf("%v - %v [%v] \"%v %v %v\" %v %v \"%v\" \"%v\"", c.ClientIP(), id, time.Now(), c.Request.Method, c.Request.RequestURI, c.Request.Proto, responseCode, responseSize, c.Request.Referer(), c.Request.UserAgent())
 	//	127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"
 }
 
-//Check that the revocable session token is valid, load the user details, and call the provided handler for the url
-//Or, redirect them to the login page
+// Check that the revocable session token is valid, load the user details, and call the provided handler for the url
+// Or, redirect them to the login page
 func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, bool), relay *Redirect) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		defer func() {
@@ -122,7 +122,7 @@ type Config struct {
 	BaseUrl   string
 	HostNames []string
 	LogFile   string
-	Secure bool
+	Secure    bool
 }
 
 var config *Config
@@ -140,7 +140,7 @@ func main() {
 	var f *os.File
 	f, err = os.Create("accessLog")
 	check(err)
-	accessLog = bufio.NewWriterSize(f, 999999)  //Golang!
+	accessLog = bufio.NewWriterSize(f, 999999) //Golang!
 	flag.BoolVar(&develop, "develop", false, "Allow log in with no password")
 	flag.StringVar(&baseUrl, "base-url", baseUrl, "The top level url for the authenticated section of your site")
 	flag.Parse()
@@ -194,7 +194,7 @@ func main() {
 		if config.Secure {
 			log.Fatal(autotls.Run(router, config.HostNames...))
 		} else {
-			router.Run(fmt.Sprintf("127.0.0.1:%v",config.Port))
+			router.Run(fmt.Sprintf("127.0.0.1:%v", config.Port))
 		}
 	}
 }
@@ -203,15 +203,15 @@ func main() {
 func frontPageHandler(c *gin.Context) {
 	subs := map[string]string{}
 	if develop {
-	
-		subs["DEVELOPER"] =	"<hr/><a href='/develop/auth/callback'><button>Login with no password</button></a><br>"
-	}else {
-		subs["DEVELOPER"] =	""
+
+		subs["DEVELOPER"] = "<hr/><a href='/develop/auth/callback'><button>Login with no password</button></a><br>"
+	} else {
+		subs["DEVELOPER"] = ""
 	}
-		displayPage(c, "", "files/frontpage.html" ,  nil, subs)
+	displayPage(c, "", "files/frontpage.html", nil, subs)
 }
 
-//Given a session token, find the authentigate id
+// Given a session token, find the authentigate id
 func sessionTokenToId(sessionToken string) string {
 	var id string
 	found, err := b.SessionTokens.Get(sessionToken, &id)
@@ -227,7 +227,7 @@ func sessionTokenToId(sessionToken string) string {
 	return string(id)
 }
 
-//Load user data
+// Load user data
 func LoadUser(id string) *userData_t {
 	var user userData_t
 	found, err := b.Users.Get(id, &user)
@@ -238,7 +238,7 @@ func LoadUser(id string) *userData_t {
 	return &user
 }
 
-//Given a provider id (string is provider name + provider id), find the authentigate id
+// Given a provider id (string is provider name + provider id), find the authentigate id
 func foreignIdToId(fid string) string {
 	var id string
 	found, err := b.ForeignIDs.Get(fid, &id)
@@ -251,7 +251,7 @@ func foreignIdToId(fid string) string {
 	return string(id)
 }
 
-//Given an authentigate id, load the current session token
+// Given an authentigate id, load the current session token
 func idToSessionToken(id string) string {
 
 	user := LoadUser(id)
@@ -262,13 +262,13 @@ func idToSessionToken(id string) string {
 	return string(user.Token)
 }
 
-//Show the user their revocable token
+// Show the user their revocable token
 func tokenShowHandler(c *gin.Context, blah string, token string, relay *Redirect, useCookie bool) {
 	sessionID := c.Query("id")
 	displayPage(c, sessionID, "files/showToken.html", nil, nil)
 }
 
-//Show the user the successfull login message
+// Show the user the successfull login message
 func displayLoginPage(c *gin.Context, id string, sessionToken string) {
 
 	displayPage(c,
@@ -276,12 +276,12 @@ func displayLoginPage(c *gin.Context, id string, sessionToken string) {
 		"c",
 		"files/loginSuccessful.html",
 		map[string]string{"AuthentigateSessionToken": sessionToken},
-	nil)
+		nil)
 }
 
 func setupNewUser(c *gin.Context, foreignID string, token string) string {
 
-	u1,_ := uuid.NewV4()
+	u1, _ := uuid.NewV4()
 	fmt.Printf("new user UUIDv4: %s\n", u1)
 	user := userData_t{}
 	user.Id = u1.String()
@@ -297,10 +297,10 @@ func setupNewUser(c *gin.Context, foreignID string, token string) string {
 
 func newTokenHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
 	sessionToken := newToken(id)
-	displayPage(c, sessionToken, "files/showToken.html", nil,nil)
+	displayPage(c, sessionToken, "files/showToken.html", nil, nil)
 }
 
-//Display a html file, inserting the revocable session token as needed
+// Display a html file, inserting the revocable session token as needed
 func displayPage(c *gin.Context, token, filename string, cookies map[string]string, subs map[string]string) {
 	templateb, _ := ioutil.ReadFile(filename)
 	template := string(templateb)
@@ -440,7 +440,7 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 	}
 }
 
-//Not very functional, but it will do for now
+// Not very functional, but it will do for now
 func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redirect, useCookie bool) {
 	microserviceBaseUrl := fmt.Sprintf("%vc/%v/", baseUrl, relay.Name)
 	microserviceTokenUrl := fmt.Sprintf("%v%v/%v/", baseUrl, token, relay.Name)
@@ -564,6 +564,7 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Header("Content-Disposition", resp.Header.Get("Content-Disposition"))
+	c.Status(resp.StatusCode)
 	c.Writer.Write(respData)
 	logMess := []byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n")
 	accessLog.Write(logMess)
@@ -620,10 +621,10 @@ func redirectHandler(c *gin.Context) {
 	c.Redirect(http.StatusFound, authURL)
 }
 
-//Wrap basic hash functions:  open/exists/put/get
+// Wrap basic hash functions:  open/exists/put/get
 //
-//To switch to another keyval store, e.g. AWS, we just replace the API calls here
-//Create and open the authentication keyval store
+// To switch to another keyval store, e.g. AWS, we just replace the API calls here
+// Create and open the authentication keyval store
 func newAuthDB(filename string) (s *authDB, err error, shutdownFunc func()) {
 	s = &authDB{}
 	s.db, err = bolt.Open(filename, 0600, &bolt.Options{Timeout: 1 * time.Second})
@@ -670,9 +671,9 @@ func newAuthDB(filename string) (s *authDB, err error, shutdownFunc func()) {
 	return s, err, shutdownFunc
 }
 
-//Wrap basic hash functions:  exists/put/get
+// Wrap basic hash functions:  exists/put/get
 //
-//To switch to another keyval store, e.g. AWS, we just replace the API calls here
+// To switch to another keyval store, e.g. AWS, we just replace the API calls here
 func (s *authDB) Exists(bucket, key string) bool {
 	var v []byte
 	v = nil
@@ -692,9 +693,9 @@ func (s *authDB) Exists(bucket, key string) bool {
 	return false
 }
 
-//Wrap basic hash functions:  exists/put/get
+// Wrap basic hash functions:  exists/put/get
 //
-//To switch to another keyval store, e.g. AWS, we just replace the API calls here
+// To switch to another keyval store, e.g. AWS, we just replace the API calls here
 func (s *authDB) Put(bucket, key string, val []byte) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(bucket))
@@ -709,9 +710,9 @@ func (s *authDB) Put(bucket, key string, val []byte) error {
 	})
 }
 
-//Wrap basic hash functions:  exists/put/get
+// Wrap basic hash functions:  exists/put/get
 //
-//To switch to another keyval store, e.g. AWS, we just replace the API calls here
+// To switch to another keyval store, e.g. AWS, we just replace the API calls here
 func (s *authDB) Get(bucket, key string) (data []byte, err error) {
 	err = errors.New("Id '" + key + "' not found!")
 	s.db.View(func(tx *bolt.Tx) error {
@@ -727,13 +728,13 @@ func (s *authDB) Get(bucket, key string) (data []byte, err error) {
 	return
 }
 
-//Quick and dirty HTML templating
+// Quick and dirty HTML templating
 func templateSet(template, before, after string) string {
 	template = strings.Replace(template, before, after, -1)
 	return template
 }
 
-//Does the user exist in our user database?
+// Does the user exist in our user database?
 func isNewUser(id string) bool {
 	var user userData_t
 	if found, _ := b.Users.Get(id, &user); found {
