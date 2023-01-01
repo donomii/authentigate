@@ -362,7 +362,7 @@ func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	//Copy back the bare minimum needed
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Header("Content-Length", resp.Header.Get("Content-Length"))
-
+	c.Status(resp.StatusCode)
 	//Write the result
 	c.Writer.Write(respData)
 	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
@@ -840,6 +840,7 @@ func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, rel
 	respData, err := ioutil.ReadAll(resp.Body)
 	check(err)
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
+	c.Status(resp.StatusCode)
 	c.Writer.Write(respData)
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
@@ -892,6 +893,7 @@ func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
 	respData, err := ioutil.ReadAll(resp.Body)
 	check(err)
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
+	c.Status(resp.StatusCode)
 	c.Writer.Write(respData)
 	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
