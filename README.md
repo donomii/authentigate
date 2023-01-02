@@ -55,9 +55,7 @@ A sample file called provider_secrets.json.examples can be found in the reposito
 
 # Integration
 
-Rather than relaying the entire request from client to microservice, authentigate creates a new request, and only copies what is necessary.  It also adds four HTTP headers: authentigate-id, authentigate-token, authentigate-base-url, authentigate-top-url.
-
-Rather than relaying the entire request, authentigate creates a new request, and only copies what is necessary for the request.  It also adds four HTTP header fields: authentigate-id, authentigate-token, authentigate-base-url, authentigate-top-url.  You can use these in your program to find out which user is logged in, and how to generate links that work with authentigate.
+Rather than relaying the entire request from client to microservice, authentigate creates a new request, and only copies what is necessary for the request.  It also adds four HTTP header fields: authentigate-id, authentigate-token, authentigate-base-url, authentigate-top-url.  You can use these in your program to find out which user is logged in, and how to generate links that work with authentigate.
 
 ## authentigate-id
 
@@ -65,13 +63,13 @@ This is authentigate's internal user id.  You should not show it to the user, an
 
 ## authentigate-token
 
-This is the revocable session token that the client is currently using. You can use this to construct automatic login urls that will work with e.g. curl
+This is the revocable session token that the client is currently using. You can use this to construct automatic login urls that will work with e.g. curl.  You should show this to the user, you should never use this as a key for user data.
 
 ## authentigate-base-url
 
-The **external** base url of your website (with session token)
+The **external** base url of your website (with session token).  Used mainly to allow you to create links to other microservices.
 
 ## authentigate-top-url
 
-The **external** base url of your microservice (with session token).  You would add your API path to the end of this.
+The **external** base url of your microservice (with session token).  You add your API path to the end of this.
 
