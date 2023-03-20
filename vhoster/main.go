@@ -75,6 +75,28 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	
 	}
+case "POST":
+	log.Println("POST method")
+	for _, v := range config.Redirects {
+		//log.Println("Comparing ", c.Request.Host, "and", v.Host)
+		if strings.HasSuffix(c.Request.Host,v.Host) {
+		//log.Println("Relaying for "+v.Host)
+		relayPostHandler(&c,&v)
+	}
+
+}
+
+case "PUT":
+	log.Println("PUT method")
+	for _, v := range config.Redirects {
+		//log.Println("Comparing ", c.Request.Host, "and", v.Host)
+		if strings.HasSuffix(c.Request.Host,v.Host) {
+		//log.Println("Relaying for "+v.Host)
+		relayPutHandler(&c,&v)
+	}
+
+}
+
 }
 }
 
