@@ -6,7 +6,6 @@ import (
 
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -23,7 +22,7 @@ import (
 //The url of the top of the authenticated part of your website
 
 var develop = false
-var accessLog io.Writer
+var accessLog *bufio.Writer
 var db_prefix string = "authentigate_"
 var providerSecrets map[string]map[string]string
 var r *rand.Rand
@@ -54,6 +53,8 @@ type MyMux struct {
 
 func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := MyContext{Writer: w, Request: *r}
+	logMess := format_clf(&c, "", "???", "???" + "\n")
+	fmt.Println(logMess)
 	switch r.Method {
 	case "GET":
 		log.Println("GET method")
@@ -175,6 +176,7 @@ func relayPutHandler(c *MyContext, relay *Redirect) {
 	c.Writer.Write(respData)
 	log.Printf("redirect PUT  %v\n", req.URL)
 	accessLog.Write([]byte(format_clf(c, "", fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	accessLog.Flush()
 }
 
 // Redirect to default microservice, using POST
@@ -238,6 +240,7 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 		log.Printf("redirect failed %+V\n", resp)
 
 	}
+	accessLog.Flush()
 }
 
 // Redirect to default microservice, using GET
@@ -273,6 +276,7 @@ func relayGetHandler(c *MyContext, relay *Redirect) {
 	c.Writer.Write(respData)
 	logMess := []byte(format_clf(c, "", fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n")
 	accessLog.Write(logMess)
+	accessLog.Flush()
 }
 
 // Quick and dirty HTML templating
