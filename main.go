@@ -12,7 +12,6 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -29,12 +28,16 @@ import (
 	"github.com/philippgille/gokv/bbolt"
 
 	_ "github.com/philippgille/gokv"
+	qrcode "github.com/skip2/go-qrcode"
+	"github.com/xlzd/gotp"
 )
 
 type userData_t struct {
 	Id         string
 	ForeignIDs []string
 	Token      string
+	QRcode     []byte
+	OtpSecret  string
 }
 
 var upGrader = websocket.Upgrader{
@@ -100,7 +103,7 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, b
 		token, err := c.Cookie("AuthentigateSessionToken")
 		useCookie := true
 		if err == nil {
-			log.Println("Found authentigate cookie")
+			log.Println("Found authentigate cookie: ", token)
 		} else {
 			log.Println("Cookie not found, using token")
 			log.Println(err)
@@ -130,9 +133,9 @@ type Config struct {
 	Port      int
 	BaseUrl   string
 	HostNames []string
-	Bans  []string
-	LogFile string
-	Secure  bool
+	Bans      []string
+	LogFile   string
+	Secure    bool
 }
 
 var config *Config
@@ -221,61 +224,20 @@ func frontPageHandler(c *gin.Context) {
 	displayPage(c, "", "files/frontpage.html", nil, subs)
 }
 
-// Given a session token, find the authentigate id
-func sessionTokenToId(sessionToken string) string {
-	var id string
-	found, err := b.SessionTokens.Get(sessionToken, &id)
-	if !found {
-		log.Println("Could not find sessionToken", sessionToken, "in token store")
-		return ""
-	}
-	check(err)
-
-	if string(id) == "1" && !develop {
-		panic("Invalid user id!  Id 1 is reserved for development")
-	}
-	return string(id)
-}
-
-// Load user data
-func LoadUser(id string) *userData_t {
-	var user userData_t
-	found, err := b.Users.Get(id, &user)
-	if err != nil || !found {
-		return nil
-	}
-
-	return &user
-}
-
-// Given a provider id (string is provider name + provider id), find the authentigate id
-func foreignIdToId(fid string) string {
-	var id string
-	found, err := b.ForeignIDs.Get(fid, &id)
-	if !found {
-		return ""
-	}
-	check(err)
-
-	log.Printf("id %v from fid %v", id, fid)
-	return string(id)
-}
-
-// Given an authentigate id, load the current session token
-func idToSessionToken(id string) string {
-
-	user := LoadUser(id)
-	if user == nil {
-		return ""
-	}
-	log.Printf("Token %v found for id %v", user.Token, id)
-	return string(user.Token)
-}
-
 // Show the user their revocable token
 func tokenShowHandler(c *gin.Context, blah string, token string, relay *Redirect, useCookie bool) {
 	sessionID := c.Query("id")
-	displayPage(c, sessionID, "files/showToken.html", nil, nil)
+	user := LoadUser(sessionID)
+	if user == nil {
+		panic("User not found for id:"+sessionID+"!")
+	}
+	png := user.QRcode
+	//Save the png to a temporary directory then server it
+	tmpDir := "qrcodes"
+	os.Mkdir(tmpDir, 0700)
+	fname := fmt.Sprintf("%v/%v.png", tmpDir, sessionID)
+	ioutil.WriteFile(fname, png, 0600)
+	displayPage(c, sessionID, "files/showToken.html", nil, map[string]string{"QRCODE": "/qrcode/" + fname})
 }
 
 // Show the user the successfull login message
@@ -461,77 +423,6 @@ func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redir
 	req.Header.Add("authentigate-base-url", microserviceBaseUrl)
 	req.Header.Add("authentigate-base-token-url", microserviceTokenUrl)
 	req.Header.Add("authentigate-top-url", siteTopUrl)
-}
-
-func upgradeAndHandle(c *gin.Context, req *http.Request) {
-	ws, err := upGrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Println("error get connection")
-		panic(err)
-	}
-	defer ws.Close()
-
-	socket := websocketClientConn(req.URL.Host, req.URL.Path)
-
-	defer socket.Close()
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("Socket closed while processing %v: %v", c.Request.URL, r)
-			}
-		}()
-
-		defer ws.Close()
-		defer socket.Close()
-		for {
-			//Read data in ws
-			mt, message, err := ws.ReadMessage()
-			if err != nil {
-				log.Println("error reading message from client")
-				panic(err)
-			}
-
-			log.Printf("!!!!!Message %+v\nmt %+v\n", message, mt)
-
-			err = socket.WriteMessage(mt, message)
-			if err != nil {
-				log.Println("error writing message to server: " + err.Error())
-				panic(err)
-			}
-
-		}
-	}()
-
-	for {
-		//Read data in ws
-		mt, message, err := socket.ReadMessage()
-		if err != nil {
-			log.Println("error read message")
-			panic(err)
-		}
-
-		log.Printf("Message %+v\nmt %+v\n", message, mt)
-		err = ws.WriteMessage(mt, message)
-		if err != nil {
-			log.Println("error write message: " + err.Error())
-			panic(err)
-		}
-
-	}
-
-}
-
-func websocketClientConn(addr, path string) *websocket.Conn {
-
-	u := url.URL{Scheme: "ws", Host: addr, Path: path}
-	log.Printf("connecting to %s", u.String())
-
-	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-	if err != nil {
-		panic(err)
-	}
-	return c
 }
 
 // Redirect to default microservice, using GET
@@ -754,6 +645,33 @@ func isNewUser(id string) bool {
 	}
 }
 
+func testOTPVerify(secret string) {
+	totp := gotp.NewDefaultTOTP(secret)
+	otpValue := totp.Now()
+	fmt.Println("current one-time password is:", otpValue)
+
+	ok := totp.Verify(otpValue, time.Now().Unix())
+	fmt.Println("verify OTP success:", ok)
+}
+
+func generateTOTPWithSecret(secret string) []byte {
+	totp := gotp.NewDefaultTOTP(secret)
+	fmt.Println("current one-time password is:", totp.Now())
+
+	uri := totp.ProvisioningUri("user@email.com", "myApp")
+	fmt.Println(uri)
+	q, err := qrcode.New(uri, qrcode.High)
+	if err != nil {
+		panic(err)
+	}
+
+	p,err := q.PNG(256)
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
 //Authentigate provides revocable tokens for users.  Tokens are mapped to user IDs by authentigate
 //
 //Generate a new revocable token
@@ -770,6 +688,9 @@ func newToken(id string) string {
 	}
 
 	user.Token = sessionToken
+
+	user.OtpSecret =  gotp.RandomSecret(16)
+	user.QRcode = generateTOTPWithSecret(user.OtpSecret)
 	SaveUser(user)
 	return sessionToken
 }
