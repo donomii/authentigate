@@ -23,13 +23,12 @@ body {
 </head>
 
 <body>
-  <form action="UPDATEUSERURL" method="post">
+	Login with your authenticator
+  <form action="/totplogin" method="post">
     <div>
-      <p>Your secret token is: TOKEN</p>
-      <p>Setup your authenticator with: <img src="QRCODE"/></p>
-      <p>Username: <input type="text" name="username" value="USERNAME"/></p>
+      <p>Username: <input type="text" name="username" value="username"/></p>
+	  <p>Authenticator code: <input type="text" name="code" value="123456"/></p>
       <p><input type="submit" value="Submit"/></p>
-    <div>ERROR</div>
     </div>
   </form>
 </body>
