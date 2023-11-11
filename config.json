@@ -104,6 +104,7 @@
 	],
 	"Port": 97,
 	"BaseUrl": "https://entirety.praeceptamachinae.com/secure/",
+	"Bans": ["presence"],
 	"HostNames": [
 		"entirety.praeceptamachinae.com",
 		"garden.praeceptamachinae.com",

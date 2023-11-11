@@ -76,7 +76,7 @@ func format_clf(c *gin.Context, id, responseCode, responseSize string) string {
 
 // Check that the revocable session token is valid, load the user details, and call the provided handler for the url
 // Or, redirect them to the login page
-func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, bool), relay *Redirect) func(c *gin.Context) {
+func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, bool), relay *Redirect, bans []string) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -87,6 +87,15 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, b
 				displayPage(c, "", "files/BackendFailure.html", nil, nil)
 			}
 		}()
+
+		url := c.Request.URL.String()
+		for _, ban := range bans {
+			if strings.Contains(url, ban) {
+				c.Status(403)
+				displayPage(c, "", "files/BackendFailure.html", nil, nil)
+				return
+			}
+		}
 
 		token, err := c.Cookie("AuthentigateSessionToken")
 		useCookie := true
@@ -121,8 +130,9 @@ type Config struct {
 	Port      int
 	BaseUrl   string
 	HostNames []string
-	LogFile   string
-	Secure    bool
+	Bans  []string
+	LogFile string
+	Secure  bool
 }
 
 var config *Config
@@ -159,19 +169,19 @@ func main() {
 
 	router.GET("/", frontPageHandler)
 	//User management pages
-	router.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, nil))
-	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, nil))
+	router.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, nil, config.Bans))
+	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, nil, config.Bans))
 
 	for _, loopPtr := range config.Redirects {
 		relay := loopPtr
 		fmt.Printf("Adding route from %v, to %v\n", relay.From, relay.To)
 		switch relay.Tipe {
 		case "GET":
-			router.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay))
+			router.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay, config.Bans))
 		case "POST":
-			router.POST(relay.From, makeAuthedRelay(relayPostHandler, &relay))
+			router.POST(relay.From, makeAuthedRelay(relayPostHandler, &relay, config.Bans))
 		case "PUT":
-			router.PUT(relay.From, makeAuthedRelay(relayPutHandler, &relay))
+			router.PUT(relay.From, makeAuthedRelay(relayPutHandler, &relay, config.Bans))
 		default:
 			panic("Unsupported type for relay")
 		}
