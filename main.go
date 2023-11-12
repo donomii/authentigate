@@ -11,6 +11,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -456,25 +457,26 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 	req, err := http.NewRequest("POST", relay.To+api+params, nil)
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
+
 
 	CopyHeaders := relay.CopyHeaders
 	log.Printf("Forwarding headers %v\n", CopyHeaders)
-	log.Printf("Request %+V\n", c)
+	log.Printf("Request %+v\n", c)
 	log.Printf("Request body %v\n", string(bodyData))
 	for k, _ := range c.Request.Header {
 		req.Header.Add(k, c.Request.Header.Get(k))
 		log.Printf("Copyheader: %v, %v\n", k, c.Request.Header.Get(k))
 	}
 
-	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
-	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
+	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
+	req.Header.Add("X-Forwarded-For", forwarded_for)
 	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
 	req.Header.Add("X-Real-IP", c.RemoteIP())
-	req.Header.Add("Host", "entirety.praeceptamachinae.com")
+	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
+	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
+	req.Header.Add("X-Forwarded-Host", c.Request.Host)
 
-	log.Printf("Sending Request %+V\n", req)
+	log.Printf("Sending Request %+v\n", req)
 	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
 
 	log.Printf("POST %v\n", req.URL)
@@ -539,8 +541,13 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 
+	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
+	req.Header.Add("X-Forwarded-For", forwarded_for)
 	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
 	req.Header.Add("X-Real-IP", c.RemoteIP())
+	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
+	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
+	req.Header.Add("X-Forwarded-Host", c.Request.Host)
 	CopyHeaders := relay.CopyHeaders
 	for _, h := range CopyHeaders {
 		req.Header.Add(h, c.Request.Header.Get(h))
