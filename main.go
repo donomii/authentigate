@@ -396,8 +396,13 @@ func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	req, err := http.NewRequest("PUT", relay.To+api+params, nil)
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
+	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
+	req.Header.Add("X-Forwarded-For", forwarded_for)
 	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
 	req.Header.Add("X-Real-IP", c.RemoteIP())
+	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
+	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
+	req.Header.Add("X-Forwarded-Host", c.Request.Host)
 
 	//Copy the bare minimum needed for a post request
 	//FIXME:  Move this into config file, allow configuration per-endpoint
