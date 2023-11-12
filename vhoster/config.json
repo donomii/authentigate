@@ -29,6 +29,7 @@
 		}
 	],
 	"Port": 80,
+	"Bans": ["presence"],
 	"HostNames": [
 		"entirety.praeceptamachinae.com",
 		"garden.praeceptamachinae.com",
