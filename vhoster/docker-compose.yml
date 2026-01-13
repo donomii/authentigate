@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  vhoster:
+    build: .
+    container_name: vhoster
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "3000:3000"
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./accessLog:/app/accessLog
+    environment:
+      - TZ=UTC
+    command: ["./vhoster", "-develop"]  # Remove -develop flag for production with HTTPS

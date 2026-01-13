@@ -3,19 +3,17 @@ package main
 import (
 	"bufio"
 	"bytes"
-
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"math/rand"
 	"net/http"
-
-	"github.com/gin-gonic/autotls"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/autotls"
 	_ "github.com/philippgille/gokv"
 )
 
@@ -55,6 +53,8 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := MyContext{Writer: w, Request: *r}
 	logMess := format_clf(&c, "", "???", "???" + "\n")
 	fmt.Println(logMess)
+
+	handled := false
 	switch r.Method {
 	case "GET":
 		log.Println("GET method")
@@ -63,8 +63,9 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(c.Request.Host, v.Host) {
 				//log.Println("Relaying for "+v.Host)
 				relayGetHandler(&c, &v)
+				handled = true
+				return
 			}
-
 		}
 	case "POST":
 		log.Println("POST method")
@@ -73,10 +74,10 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(c.Request.Host, v.Host) {
 				//log.Println("Relaying for "+v.Host)
 				relayPostHandler(&c, &v)
+				handled = true
+				return
 			}
-
 		}
-
 	case "PUT":
 		log.Println("PUT method")
 		for _, v := range config.Redirects {
@@ -84,10 +85,16 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(c.Request.Host, v.Host) {
 				//log.Println("Relaying for "+v.Host)
 				relayPutHandler(&c, &v)
+				handled = true
+				return
 			}
-
 		}
+	}
 
+	if !handled {
+		log.Printf("No route found for host: %s, method: %s\n", c.Request.Host, r.Method)
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("404 - No route configured for this host"))
 	}
 }
 
@@ -146,7 +153,7 @@ func main() {
 // Redirect to default microservice, using PUT
 func relayPutHandler(c *MyContext, relay *Redirect) {
 
-	bodyData, _ := ioutil.ReadAll(c.Request.Body)
+	bodyData, _ := io.ReadAll(c.Request.Body)
 	client := &http.Client{}
 	path := c.Request.URL.Path
 
@@ -158,14 +165,14 @@ func relayPutHandler(c *MyContext, relay *Redirect) {
 	for k, v := range c.Request.Header {
 		req.Header[k] = v
 	}
-	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
+	req.Body = io.NopCloser(bytes.NewReader(bodyData))
 
 	log.Printf("PUT %v\n", req.URL)
 
 	//Do it
 	resp, err := client.Do(req)
 	check(err)
-	respData, err := ioutil.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 	check(err)
 
 	//Copy back the bare minimum needed
@@ -183,7 +190,7 @@ func relayPutHandler(c *MyContext, relay *Redirect) {
 func relayPostHandler(c *MyContext, relay *Redirect) {
 
 	path := c.Request.URL.Path
-	bodyData, err := ioutil.ReadAll(c.Request.Body)
+	bodyData, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		panic(err)
 	}
@@ -210,7 +217,7 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 	req.Header.Add("Host", "entirety.praeceptamachinae.com")
 
 	log.Printf("Sending Request %+V\n", req)
-	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
+	req.Body = io.NopCloser(bytes.NewReader(bodyData))
 
 	log.Printf("POST %v\n", req.URL)
 
@@ -219,7 +226,7 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 	var respData []byte
 	if resp != nil {
 		if resp.Body != nil {
-			respData, err = ioutil.ReadAll(resp.Body)
+			respData, err = io.ReadAll(resp.Body)
 			check(err)
 		}
 
@@ -267,7 +274,7 @@ func relayGetHandler(c *MyContext, relay *Redirect) {
 	log.Printf("redirect GET %v to %v\n", c.Request.URL, req.URL)
 	resp, err := client.Do(req)
 	check(err)
-	respData, err := ioutil.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 
 	for k, v := range resp.Header {
 		c.Writer.Header()[k] = v
