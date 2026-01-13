@@ -55,13 +55,15 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Println(logMess)
 
 	handled := false
+	var triedRoutes []string
+
 	switch r.Method {
 	case "GET":
 		log.Println("GET method")
 		for _, v := range config.Redirects {
-			//log.Println("Comparing ", c.Request.Host, "and", v.Host)
+			triedRoutes = append(triedRoutes, fmt.Sprintf("'%s' (suffix match against '%s')", v.Host, c.Request.Host))
 			if strings.HasSuffix(c.Request.Host, v.Host) {
-				//log.Println("Relaying for "+v.Host)
+				log.Printf("✓ Matched route: %s -> %s\n", v.Host, v.To)
 				relayGetHandler(&c, &v)
 				handled = true
 				return
@@ -70,9 +72,9 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "POST":
 		log.Println("POST method")
 		for _, v := range config.Redirects {
-			//log.Println("Comparing ", c.Request.Host, "and", v.Host)
+			triedRoutes = append(triedRoutes, fmt.Sprintf("'%s' (suffix match against '%s')", v.Host, c.Request.Host))
 			if strings.HasSuffix(c.Request.Host, v.Host) {
-				//log.Println("Relaying for "+v.Host)
+				log.Printf("✓ Matched route: %s -> %s\n", v.Host, v.To)
 				relayPostHandler(&c, &v)
 				handled = true
 				return
@@ -81,9 +83,9 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "PUT":
 		log.Println("PUT method")
 		for _, v := range config.Redirects {
-			//log.Println("Comparing ", c.Request.Host, "and", v.Host)
+			triedRoutes = append(triedRoutes, fmt.Sprintf("'%s' (suffix match against '%s')", v.Host, c.Request.Host))
 			if strings.HasSuffix(c.Request.Host, v.Host) {
-				//log.Println("Relaying for "+v.Host)
+				log.Printf("✓ Matched route: %s -> %s\n", v.Host, v.To)
 				relayPutHandler(&c, &v)
 				handled = true
 				return
@@ -92,7 +94,11 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !handled {
-		log.Printf("No route found for host: %s, method: %s\n", c.Request.Host, r.Method)
+		log.Printf("✗ No route found for host: '%s', method: %s\n", c.Request.Host, r.Method)
+		log.Printf("  Tried routes:\n")
+		for _, route := range triedRoutes {
+			log.Printf("    - %s\n", route)
+		}
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte("404 - No route configured for this host"))
 	}
@@ -144,12 +150,24 @@ func main() {
 	flag.BoolVar(&develop, "develop", false, "Allow log in with no password")
 	flag.Parse()
 
+	// Print routing configuration on startup
+	fmt.Println("=== vhoster routing configuration ===")
+	fmt.Printf("Port: %d\n", config.Port)
+	fmt.Printf("Development mode: %v\n", develop)
+	fmt.Printf("Routes (%d configured):\n", len(config.Redirects))
+	for i, r := range config.Redirects {
+		fmt.Printf("  [%d] Host: %s -> To: %s (Name: %s)\n", i, r.Host, r.To, r.Name)
+	}
+	fmt.Println("=====================================")
+
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
 	mux := MyMux{}
 
 	if develop {
+		fmt.Printf("Starting in development mode on port 3000...\n")
 		http.ListenAndServe(":3000", mux)
 	} else {
+		fmt.Printf("Starting in production mode with HTTPS...\n")
 		log.Fatal(autotls.Run(mux, config.HostNames...))
 	}
 }
