@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   vhoster:
     build: .
@@ -11,7 +9,11 @@ services:
       - "3000:3000"
     volumes:
       - ./config.json:/app/config.json:ro
-      - ./accessLog:/app/accessLog
+      - vhoster-logs:/app/logs
     environment:
       - TZ=UTC
+      - LOG_FILE=/app/logs/accessLog
     command: ["./vhoster", "-develop"]  # Remove -develop flag for production with HTTPS
+
+volumes:
+  vhoster-logs:

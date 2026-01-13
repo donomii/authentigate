@@ -134,7 +134,11 @@ func main() {
 
 	var err error
 	var f *os.File
-	f, err = os.Create("accessLog")
+	logFile := os.Getenv("LOG_FILE")
+	if logFile == "" {
+		logFile = "accessLog"
+	}
+	f, err = os.Create(logFile)
 	check(err)
 	accessLog = bufio.NewWriterSize(f, 999999) //Golang!
 	flag.BoolVar(&develop, "develop", false, "Allow log in with no password")

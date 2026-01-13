@@ -32,9 +32,6 @@ COPY --from=builder /build/vhoster .
 # Copy config files
 COPY config.json .
 
-# Create accessLog file
-RUN touch accessLog && chmod 666 accessLog
-
 # Expose ports
 EXPOSE 80 443 3000
 
