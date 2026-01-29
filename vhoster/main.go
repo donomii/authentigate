@@ -51,7 +51,7 @@ type MyMux struct {
 
 func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := MyContext{Writer: w, Request: *r}
-	logMess := format_clf(&c, "", "???", "???" + "\n")
+	logMess := format_clf(&c, "", "???", "???"+"\n")
 	fmt.Println(logMess)
 
 	handled := false
@@ -225,7 +225,7 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 
 	CopyHeaders := relay.CopyHeaders
 	log.Printf("Forwarding headers %v\n", CopyHeaders)
-	log.Printf("Request %+V\n", c)
+	log.Printf("Request %+v\n", c)
 	log.Printf("Request body %v\n", string(bodyData))
 	for k, _ := range c.Request.Header {
 		req.Header.Add(k, c.Request.Header.Get(k))
@@ -238,7 +238,7 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 	req.Header.Add("X-Real-IP", c.RemoteIP())
 	req.Header.Add("Host", "entirety.praeceptamachinae.com")
 
-	log.Printf("Sending Request %+V\n", req)
+	log.Printf("Sending Request %+v\n", req)
 	req.Body = io.NopCloser(bytes.NewReader(bodyData))
 
 	log.Printf("POST %v\n", req.URL)
@@ -266,7 +266,7 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 			fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 	} else {
 		log.Printf("redirect POST %v\n", req.URL)
-		log.Printf("redirect failed %+V\n", resp)
+		log.Printf("redirect failed %+v\n", resp)
 
 	}
 	accessLog.Flush()

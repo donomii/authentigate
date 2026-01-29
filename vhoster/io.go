@@ -7,7 +7,6 @@ import (
 	"os"
 )
 
-
 func SaveConfig(config *Config) {
 	payload, err := json.MarshalIndent(config, "", "	")
 	if err != nil {
@@ -16,13 +15,13 @@ func SaveConfig(config *Config) {
 	os.WriteFile(fmt.Sprintf("config.json"), payload, 0600)
 }
 
-//Load user data
+// Load user data
 func LoadConfig(file string) *Config {
 	var config Config
 	raw, err := os.ReadFile(file)
 	if err != nil {
-		log.Printf("Unable to read from file %a: %v", file, err)
-		panic(fmt.Sprintf("Unable to read from file %a: %v", file, err))
+		log.Printf("Unable to read from file %s: %v", file, err)
+		panic(fmt.Sprintf("Unable to read from file %s: %v", file, err))
 	}
 
 	json.Unmarshal(raw, &config)
