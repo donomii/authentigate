@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -13,8 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/autotls"
-	_ "github.com/philippgille/gokv"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 //The url of the top of the authenticated part of your website
@@ -132,23 +132,32 @@ type Config struct {
 var config *Config
 
 func main() {
-	config = LoadConfig("config.json")
+	// Parse command line flags first
+	var configFile, logFile string
+	flag.StringVar(&configFile, "c", "config.json", "Path to config file")
+	flag.StringVar(&configFile, "config", "config.json", "Path to config file")
+	flag.StringVar(&logFile, "l", "accessLog", "Path to access log file")
+	flag.StringVar(&logFile, "log", "accessLog", "Path to access log file")
+	flag.BoolVar(&develop, "develop", false, "Development mode (no HTTPS, port 3000)")
+	flag.Parse()
+
+	// Load config
+	config = LoadConfig(configFile)
 	if config == nil {
-		fmt.Printf("Failed to read config file, exiting!\n")
+		fmt.Printf("Failed to read config file '%s', exiting!\n", configFile)
 		os.Exit(1)
 	}
 
+	// Set up access log
 	var err error
 	var f *os.File
-	logFile := os.Getenv("LOG_FILE")
-	if logFile == "" {
-		logFile = "accessLog"
+	// Allow LOG_FILE env var to override flag
+	if envLog := os.Getenv("LOG_FILE"); envLog != "" {
+		logFile = envLog
 	}
 	f, err = os.Create(logFile)
 	check(err)
-	accessLog = bufio.NewWriterSize(f, 999999) //Golang!
-	flag.BoolVar(&develop, "develop", false, "Allow log in with no password")
-	flag.Parse()
+	accessLog = bufio.NewWriterSize(f, 999999)
 
 	// Print routing configuration on startup
 	fmt.Println("=== vhoster routing configuration ===")
@@ -167,8 +176,35 @@ func main() {
 		fmt.Printf("Starting in development mode on port 3000...\n")
 		http.ListenAndServe(":3000", mux)
 	} else {
-		fmt.Printf("Starting in production mode with HTTPS...\n")
-		log.Fatal(autotls.Run(mux, config.HostNames...))
+		fmt.Println("Starting in production mode...")
+		fmt.Println("  HTTP  on :80  (proxying + ACME challenges)")
+		fmt.Println("  HTTPS on :443 (Let's Encrypt auto-certs)")
+
+		// Configure autocert manager for Let's Encrypt
+		certManager := autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(config.HostNames...),
+			Cache:      autocert.DirCache(".certs"), // Store certs in .certs directory
+		}
+
+		// HTTPS server on port 443
+		server := &http.Server{
+			Addr:    ":443",
+			Handler: mux,
+			TLSConfig: &tls.Config{
+				GetCertificate: certManager.GetCertificate,
+				MinVersion:     tls.VersionTLS12,
+			},
+		}
+
+		// HTTP server on port 80 - serves requests AND handles ACME challenges
+		go func() {
+			// HTTPHandler wraps our mux to also handle ACME challenges
+			h := certManager.HTTPHandler(mux)
+			log.Fatal(http.ListenAndServe(":80", h))
+		}()
+
+		log.Fatal(server.ListenAndServeTLS("", "")) // Certs provided by autocert
 	}
 }
 
