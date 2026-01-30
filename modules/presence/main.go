@@ -1,31 +1,35 @@
 package main
 
 import (
-	"strings"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/donomii/goof"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-
-	//"github.com/gin-gonic/autotls"
-
-	"github.com/gin-gonic/gin"
-	ginprometheus "github.com/zsais/go-gin-prometheus"
 )
+
+type Context struct {
+	Writer  http.ResponseWriter
+	Request *http.Request
+}
+
+func (c *Context) Query(key string) string {
+	return c.Request.URL.Query().Get(key)
+}
 
 var safe bool = false
 
 type UserData struct {
 	LastTime          time.Time
 	ExternalIPaddress string
-	LocalIPaddresses    []string
+	LocalIPaddresses  []string
 }
 
 type UserMap map[string]UserData
@@ -37,8 +41,9 @@ type Room struct {
 var Rooms map[int]Room
 var room_lock sync.Mutex
 
-func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Context) {
-	return func(c *gin.Context) {
+func makeAuthed(handlerFunc func(*Context, string, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c := &Context{Writer: w, Request: r}
 		id := c.Request.Header.Get("authentigate-id")
 		baseUrl := c.Request.Header.Get("authentigate-base-url")
 		if id == "" {
@@ -47,10 +52,9 @@ func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Cont
 		log.Printf("Got real user id: '%v'", id)
 		handlerFunc(c, id, baseUrl)
 	}
-
 }
 
-//Make a sorted list of the keys in the map
+// Make a sorted list of the keys in the map
 func (m UserMap) Keys() []string {
 
 	var keys []string
@@ -73,7 +77,7 @@ func render_users(Users UserMap) string {
 		levelr := goof.Clamp(int(diff.Seconds())*4, 0, 255)
 		iplinks := []string{}
 		for _, ip := range v.LocalIPaddresses {
-			iplinks = append(iplinks, fmt.Sprintf("<a href=\"http://%v\">%v</a>", ip,ip))
+			iplinks = append(iplinks, fmt.Sprintf("<a href=\"http://%v\">%v</a>", ip, ip))
 		}
 		userHtml = userHtml + fmt.Sprintf("<div><span class='box' style='background-color: #%02x%02x%02x;'>U</span>user %v: %v seconds(<a href=\"http://%v\">%v</a>,%v)</div>", levelr, levelg, 1, k, int(diff.Seconds()), v.ExternalIPaddress, v.ExternalIPaddress, iplinks)
 		//}
@@ -83,7 +87,7 @@ func render_users(Users UserMap) string {
 
 }
 
-func get_data(c *gin.Context, id string, token string) (Room, UserData) {
+func get_data(c *Context, id string, token string) (Room, UserData) {
 	room_id, _ := strconv.Atoi(c.Query("id"))
 
 	if Rooms == nil {
@@ -123,7 +127,7 @@ func get_data(c *gin.Context, id string, token string) (Room, UserData) {
 	room.Users[id] = userdata
 	return room, userdata
 }
-func handle_users(c *gin.Context, id string, token string) {
+func handle_users(c *Context, id string, token string) {
 	room_lock.Lock()
 	defer room_lock.Unlock()
 	room, _ := get_data(c, id, token)
@@ -131,7 +135,7 @@ func handle_users(c *gin.Context, id string, token string) {
 	c.Writer.Write([]byte(render_users(room.Users)))
 }
 
-func handle_room(c *gin.Context, id string, token string) {
+func handle_room(c *Context, id string, token string) {
 	room_lock.Lock()
 	defer room_lock.Unlock()
 	room, _ := get_data(c, id, token)
@@ -244,22 +248,21 @@ updateUsers();
 
 func main() {
 	os.Mkdir("quester", 0700)
-	router := gin.Default()
-	p := ginprometheus.NewPrometheus("gin")
-	p.Use(router)
+	mux := http.NewServeMux()
 
-	serveQuester(router, "/presence/")
-	http.Handle("/metrics", promhttp.Handler())
-	router.Run("127.0.0.1:8093")
+	serveQuester(mux, "/presence/")
+	mux.Handle("/metrics", promhttp.Handler())
+
+	fmt.Println("Starting presence module on 127.0.0.1:8093...")
+	log.Fatal(http.ListenAndServe("127.0.0.1:8093", mux))
 }
 
-func serveQuester(router *gin.Engine, prefix string) {
-
-	router.GET(prefix+"room", makeAuthed(handle_room))
-	router.GET(prefix+"users", makeAuthed(handle_users))
+func serveQuester(mux *http.ServeMux, prefix string) {
+	mux.HandleFunc("GET "+prefix+"room", makeAuthed(handle_room))
+	mux.HandleFunc("GET "+prefix+"users", makeAuthed(handle_users))
 }
 
-//Force nocache
+// Force nocache
 var epoch = time.Unix(0, 0).Format(time.RFC1123)
 
 var noCacheHeaders = map[string]string{

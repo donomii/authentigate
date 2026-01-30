@@ -3,17 +3,27 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/danilopolani/gocialite"
-	"github.com/gin-gonic/gin"
 )
+
+type Context struct {
+	Writer  http.ResponseWriter
+	Request *http.Request
+}
+
+func (c *Context) Query(key string) string {
+	return c.Request.URL.Query().Get(key)
+}
 
 var gocial = gocialite.NewDispatcher()
 var sockets map[string](chan string)
@@ -31,8 +41,9 @@ func newServer(filename string) (s *server, err error) {
 	return
 }
 
-func makeAuthed(handlerFunc func(*gin.Context, string, string, string)) func(c *gin.Context) {
-	return func(c *gin.Context) {
+func makeAuthed(handlerFunc func(*Context, string, string, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c := &Context{Writer: w, Request: r}
 		id := c.Request.Header.Get("authentigate-id")
 		baseUrl := c.Request.Header.Get("authentigate-base-url")
 		topUrl := c.Request.Header.Get("authentigate-top-url")
@@ -40,7 +51,6 @@ func makeAuthed(handlerFunc func(*gin.Context, string, string, string)) func(c *
 		log.Printf("Got real user id: '%v', baseUrl: '%v'", id, baseUrl)
 		handlerFunc(c, id, baseUrl, topUrl)
 	}
-
 }
 
 func main() {
@@ -51,29 +61,25 @@ func main() {
 		panic(err)
 	}
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
-	router := gin.Default()
+	mux := http.NewServeMux()
 
-	router.GET("/token", makeAuthed(tokenShowHandler))
-	router.GET("/about", makeAuthed(aboutShowHandler))
-	router.GET("/api/cameraUploader", makeAuthed(cameraUploaderHandler))
-	router.GET("/api/cameraWatcher", makeAuthed(cameraWatcherHandler))
-	router.GET("/api/shutdown", makeAuthed(shutdownHandler))
-	router.GET("/api/mainMenu", makeAuthed(mainMenuHandler))
-	router.GET("/api/subMenu", makeAuthed(subMenuHandler))
-	router.GET("/api/newToken", makeAuthed(newTokenHandler))
-	router.GET("/api/send", makeAuthed(messageHandler))
-	router.GET("/api/check", makeAuthed(checkHandler))
-	router.GET("/api/image", makeAuthed(imageHandler))
-	router.POST("/api/upload", makeAuthed(uploadHandler))
-	router.Static("/files", "./files")
+	mux.HandleFunc("GET /token", makeAuthed(tokenShowHandler))
+	mux.HandleFunc("GET /about", makeAuthed(aboutShowHandler))
+	mux.HandleFunc("GET /api/cameraUploader", makeAuthed(cameraUploaderHandler))
+	mux.HandleFunc("GET /api/cameraWatcher", makeAuthed(cameraWatcherHandler))
+	mux.HandleFunc("GET /api/shutdown", makeAuthed(shutdownHandler))
+	mux.HandleFunc("GET /api/mainMenu", makeAuthed(mainMenuHandler))
+	mux.HandleFunc("GET /api/subMenu", makeAuthed(subMenuHandler))
+	mux.HandleFunc("GET /api/newToken", makeAuthed(newTokenHandler))
+	mux.HandleFunc("GET /api/send", makeAuthed(messageHandler))
+	mux.HandleFunc("GET /api/check", makeAuthed(checkHandler))
+	mux.HandleFunc("GET /api/image", makeAuthed(imageHandler))
+	mux.HandleFunc("POST /api/upload", makeAuthed(uploadHandler))
 
-	//log.Fatal(autotls.Run(router, "entirety.praeceptamachinae.com", "walledgarden.praeceptamachinae.com"))
-	router.Run("127.0.0.1:8091")
+	mux.Handle("/files/", http.StripPrefix("/files/", http.FileServer(http.Dir("./files"))))
 
-	/*	http.HandleFunc("/api/websocket", websocketHandler)
-		log.Println("Listening for websockets on 0.0.0.0:82")
-		log.Fatal(http.ListenAndServe("0.0.0.0:82", nil))
-	*/
+	fmt.Println("Starting menu module on 127.0.0.1:8091...")
+	log.Fatal(http.ListenAndServe("127.0.0.1:8091", mux))
 }
 
 func storeMessage(id, message string) {
@@ -90,19 +96,19 @@ func fetchMessage(id string) string {
 	}
 }
 
-func cameraUploaderHandler(c *gin.Context, id, token, top string) {
+func cameraUploaderHandler(c *Context, id, token, top string) {
 	displayPage(c, token, "files/js-webcam/1-basics.html")
 }
 
-func cameraWatcherHandler(c *gin.Context, id, token, top string) {
+func cameraWatcherHandler(c *Context, id, token, top string) {
 	displayPage(c, token, "files/watch.html")
 }
 
-func shutdownHandler(c *gin.Context, id, token, top string) {
+func shutdownHandler(c *Context, id, token, top string) {
 	os.Exit(0)
 }
 
-func checkHandler(c *gin.Context, id, token, top string) {
+func checkHandler(c *Context, id, token, top string) {
 	//log.Println("Fetching messages for id "+id)
 	mess := fetchMessage(id)
 	c.Writer.Write([]byte(string(mess)))
@@ -110,13 +116,13 @@ func checkHandler(c *gin.Context, id, token, top string) {
 	storeMessage(id, "none")
 }
 
-func imageHandler(c *gin.Context, id, token, top string) {
+func imageHandler(c *Context, id, token, top string) {
 	mess := fetchMessage(id)
 	log.Println("Fetching messages for id " + id)
 	c.Writer.Write([]byte(string(mess)))
 }
 
-func uploadHandler(c *gin.Context, id, token, top string) {
+func uploadHandler(c *Context, id, token, top string) {
 	log.Println("upload handler")
 	//parseErr := c.Request.ParseMultipartForm(32 << 20)
 	//f parseErr != nil {
@@ -131,31 +137,31 @@ func uploadHandler(c *gin.Context, id, token, top string) {
 	log.Println("Got file")
 
 	//log.Printf("%v%+v%v", infile, header, err)
-	data, _ := ioutil.ReadAll(infile)
+	data, _ := io.ReadAll(infile)
 	log.Println("Got data")
 	//log.Println(string(data))
 	storeMessage(id, string(data))
 	log.Println("stored image for user ", id)
 }
 
-func tokenShowHandler(c *gin.Context, blah, token, top string) {
+func tokenShowHandler(c *Context, blah, token, top string) {
 	sessionID := c.Query("id")
 	displayPage(c, sessionID, "files/metro/1.html")
 }
 
-func displayLoginPage(c *gin.Context, id, token, top string) {
+func displayLoginPage(c *Context, id, token, top string) {
 	displayPage(c, token, "files/loginSuccessful.html")
 }
 
-func aboutShowHandler(c *gin.Context, id, token, top string) {
+func aboutShowHandler(c *Context, id, token, top string) {
 	displayStaticPage(c, "files/metro/3.html")
 }
 
-func newTokenHandler(c *gin.Context, id, token, top string) {
+func newTokenHandler(c *Context, id, token, top string) {
 	sessionToken := newToken(id)
 	displayPage(c, sessionToken, "files/metro/1.html")
 }
-func messageHandler(c *gin.Context, id, prefix, top string) {
+func messageHandler(c *Context, id, prefix, top string) {
 	message := c.Query("message")
 	//c.Writer.Write([]byte("<p>message: " + message))
 	sock, ok := sockets[id]
@@ -233,11 +239,11 @@ func makeMenu(template, number, id, message, description, extraMessage string) s
 	return template
 }
 
-func mainMenuHandler(c *gin.Context, id, token, top string) {
+func mainMenuHandler(c *Context, id, token, top string) {
 	displayNiceMainMenu(c, top)
 }
 
-func displayNiceMainMenu(c *gin.Context, prefix string) {
+func displayNiceMainMenu(c *Context, prefix string) {
 	page := GeneralMenu(prefix, [][]string{
 		//[]string{"general/api/subMenu", "Remote Control", ""},
 		//[]string{"quester/summary", "Unfinished Business", ""},
@@ -245,18 +251,18 @@ func displayNiceMainMenu(c *gin.Context, prefix string) {
 		//[]string{"general/api/cameraWatcher", "Watch another camera", ""},
 		//[]string{"general/api/shutdown", "Shutdown the server", ""},
 		//[]string{"ngfileserver/summary", "Files", ""},
-                //[]string{"general/api/subMenu", "Remote Control", ""},
-                //[]string{"quester/summary", "Unfinished Business", ""},
-                []string{"quester/summary", "Unfinished Business", ""},
-                //[]string{"general/api/cameraUploader", "Broadcast this camera", ""},
-                //[]string{"general/api/cameraWatcher", "Watch another camera", ""},
-                //[]string{"general/api/shutdown", "Shutdown the server", ""},
-                []string{"entirety/local.html", "Maps", ""},
-                //[]string{"ngfileserver/summary", "Files", ""},
-                []string{"entiretymax/local.html", "Complete Maps", ""},
-                []string{"entiretymax2/local.html", "Complete Maps(alternate)", ""},
-                []string{"ngfileserver/summary", "Files", ""},
-                []string{"fe/shop", "Shop Demo", ""},
+		//[]string{"general/api/subMenu", "Remote Control", ""},
+		//[]string{"quester/summary", "Unfinished Business", ""},
+		[]string{"quester/summary", "Unfinished Business", ""},
+		//[]string{"general/api/cameraUploader", "Broadcast this camera", ""},
+		//[]string{"general/api/cameraWatcher", "Watch another camera", ""},
+		//[]string{"general/api/shutdown", "Shutdown the server", ""},
+		[]string{"entirety/local.html", "Maps", ""},
+		//[]string{"ngfileserver/summary", "Files", ""},
+		[]string{"entiretymax/local.html", "Complete Maps", ""},
+		[]string{"entiretymax2/local.html", "Complete Maps(alternate)", ""},
+		[]string{"ngfileserver/summary", "Files", ""},
+		[]string{"fe/shop", "Shop Demo", ""},
 		[]string{"presence/room", "Presence", ""},
 	})
 	c.Writer.Write([]byte(page))
@@ -280,8 +286,8 @@ func GeneralMenu(prefix string, items [][]string) string {
 	return template
 }
 
-func displayStaticPage(c *gin.Context, filename string) {
-	templateb, err := ioutil.ReadFile(filename)
+func displayStaticPage(c *Context, filename string) {
+	templateb, err := os.ReadFile(filename)
 	if err != nil {
 		log.Println(err)
 	}
@@ -290,18 +296,18 @@ func displayStaticPage(c *gin.Context, filename string) {
 	c.Writer.Write([]byte(template))
 }
 
-func displayPage(c *gin.Context, id, filename string) {
-	templateb, _ := ioutil.ReadFile(filename)
+func displayPage(c *Context, id, filename string) {
+	templateb, _ := os.ReadFile(filename)
 	template := string(templateb)
 	template = templateSet(template, "TOKEN", id)
 	c.Writer.Write([]byte(template))
 }
 
-func subMenuHandler(c *gin.Context, id, prefix, top string) {
+func subMenuHandler(c *Context, id, prefix, top string) {
 	displaySubmenu(c, prefix)
 }
 
-func displaySubmenu(c *gin.Context, prefix string) {
+func displaySubmenu(c *Context, prefix string) {
 	/*
 		template = makeMessageMenu(template, fmt.Sprintf("%v", 2), id, "build", "BUILD", "")
 		template = makeMessageMenu(template, fmt.Sprintf("%v", 3), id, "run", "RUN", "")

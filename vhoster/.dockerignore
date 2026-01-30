@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+LICENSE
+DOCKER.md
+
+# Build artifacts
+vhoster
+*.exe
+*.test
+*.out
+
+# Logs
+accessLog
+*.log
+
+# Examples
+*.example
+config_json.example
+provider_secrets.json.example
+
+# Scripts
+*.sh
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

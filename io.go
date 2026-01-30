@@ -7,11 +7,12 @@ import (
 	"log"
 )
 
-//Save user details
+// Save user details
 func SaveUser(user *userData_t) {
 	b.Users.Set(user.Id, *user)
 	log.Printf("Saved user %+v\n", user)
 }
+
 // Load user data
 func LoadUser(id string) *userData_t {
 	var user userData_t
@@ -31,20 +32,18 @@ func SaveConfig(config *Config) {
 	ioutil.WriteFile(fmt.Sprintf("config.json"), payload, 0600)
 }
 
-//Load user data
+// Load user data
 func LoadConfig(file string) *Config {
 	var config Config
 	raw, err := ioutil.ReadFile(file)
 	if err != nil {
-		log.Printf("Unable to read from file %a: %v", file, err)
-		panic(fmt.Sprintf("Unable to read from file %a: %v", file, err))
+		log.Printf("Unable to read from file %s: %v", file, err)
+		panic(fmt.Sprintf("Unable to read from file %s: %v", file, err))
 	}
 
 	json.Unmarshal(raw, &config)
 	return &config
 }
-
-
 
 // Given a session token, find the authentigate id
 func sessionTokenToId(sessionToken string) string {
@@ -61,8 +60,6 @@ func sessionTokenToId(sessionToken string) string {
 	}
 	return string(id)
 }
-
-
 
 // Given a provider id (string is provider name + provider id), find the authentigate id
 func foreignIdToId(fid string) string {

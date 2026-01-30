@@ -16,10 +16,11 @@ import (
 	"strings"
 	"time"
 
+	"crypto/tls"
+
 	"github.com/danilopolani/gocialite"
-	"github.com/donomii/gin"
-	"github.com/gin-gonic/autotls"
 	uuid "github.com/satori/go.uuid"
+	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/gorilla/websocket"
 
@@ -35,6 +36,73 @@ type userData_t struct {
 	QRcode     []byte
 	OtpSecret  string
 	UserName   string
+}
+
+type Context struct {
+	Writer  http.ResponseWriter
+	Request *http.Request
+	params  map[string]string
+}
+
+func (c *Context) Param(key string) string {
+	// For Go 1.22+, we can use r.PathValue
+	return c.Request.PathValue(key)
+}
+
+func (c *Context) Query(key string) string {
+	return c.Request.URL.Query().Get(key)
+}
+
+func (c *Context) Status(code int) {
+	c.Writer.WriteHeader(code)
+}
+
+func (c *Context) Header(key, value string) {
+	c.Writer.Header().Set(key, value)
+}
+
+func (c *Context) RemoteIP() string {
+	return c.Request.RemoteAddr
+}
+
+func (c *Context) ClientIP() string {
+	return c.Request.RemoteAddr
+}
+
+func (c *Context) JSON(code int, obj interface{}) {
+	c.Header("Content-Type", "application/json")
+	c.Status(code)
+	json.NewEncoder(c.Writer).Encode(obj)
+}
+
+func (c *Context) String(code int, format string, values ...interface{}) {
+	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.Status(code)
+	fmt.Fprintf(c.Writer, format, values...)
+}
+
+func (c *Context) Redirect(code int, location string) {
+	http.Redirect(c.Writer, c.Request, location, code)
+}
+
+func (c *Context) Cookie(name string) (string, error) {
+	cookie, err := c.Request.Cookie(name)
+	if err != nil {
+		return "", err
+	}
+	return cookie.Value, nil
+}
+
+func (c *Context) SetCookie(name, value string, maxAge int, path, domain string, secure, httpOnly bool) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     name,
+		Value:    value,
+		MaxAge:   maxAge,
+		Path:     path,
+		Domain:   domain,
+		Secure:   secure,
+		HttpOnly: httpOnly,
+	})
 }
 
 var upGrader = websocket.Upgrader{
@@ -54,8 +122,6 @@ var db_prefix string = "authentigate_"
 var providerSecrets map[string]map[string]string
 var r *rand.Rand
 
-
-
 // Turn errors into panics so we can catch them in the otp level handler and log them
 func check(e error) {
 	if e != nil {
@@ -64,9 +130,8 @@ func check(e error) {
 }
 
 // Create a log message in combined log format
-func format_clf(c *gin.Context, id, responseCode, responseSize string) string {
+func format_clf(c *Context, id, responseCode, responseSize string) string {
 	return fmt.Sprintf("%v - %v [%v] \"%v %v %v\" %v %v \"%v\" \"%v\"", c.ClientIP(), id, time.Now(), c.Request.Method, c.Request.RequestURI, c.Request.Proto, responseCode, responseSize, c.Request.Referer(), c.Request.UserAgent())
-	//	127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"
 }
 
 func makeSecureZoneUrl(token string, siteUrl string) string {
@@ -78,8 +143,9 @@ func makeSecureZoneUrl(token string, siteUrl string) string {
 
 // Check that the revocable session token is valid, load the user details, and call the provided handler for the url
 // Or, redirect them to the login page
-func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, bool), relay *Redirect, bans []string) func(c *gin.Context) {
-	return func(c *gin.Context) {
+func makeAuthedRelay(handlerFunc func(*Context, string, string, *Redirect, bool), relay *Redirect, bans []string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c := &Context{Writer: w, Request: r}
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Printf("Failure while processing %v: %v", c.Request.URL, r)
@@ -168,56 +234,115 @@ func main() {
 	}
 
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
-	router := gin.Default()
+	mux := http.NewServeMux()
 
-	router.GET("/", frontPageHandler)
-	//User management pages
-	router.GET("/manage/:token/token", makeAuthedRelay(tokenShowHandler, nil, config.Bans))
-	router.GET("/manage/:token/updateUser", makeAuthedRelay(updateUserHandler, nil, config.Bans))
-	router.POST("/manage/:token/updateUser", makeAuthedRelay(updateUserHandler, nil, config.Bans))
-	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, nil, config.Bans))
-	router.GET("/totplogin", makeAuthedRelay(totploginHandler, nil, config.Bans))
-	router.POST("/totplogin", makeAuthedRelay(totploginHandler, nil, config.Bans))
+	// Static files - register first to avoid conflicts
+	mux.Handle("GET /files/", http.StripPrefix("/files/", http.FileServer(http.Dir("./files"))))
+	mux.Handle("GET /qrcodes/", http.StripPrefix("/qrcodes/", http.FileServer(http.Dir("./qrcodes"))))
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./favicon.ico")
+	})
+
+	// Front page - exact match only
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		frontPageHandler(&Context{Writer: w, Request: r})
+	})
+
+	// User management pages
+	mux.HandleFunc("GET /manage/{token}/token", makeAuthedRelay(tokenShowHandler, nil, config.Bans))
+	mux.HandleFunc("GET /manage/{token}/updateUser", makeAuthedRelay(updateUserHandler, nil, config.Bans))
+	mux.HandleFunc("POST /manage/{token}/updateUser", makeAuthedRelay(updateUserHandler, nil, config.Bans))
+	mux.HandleFunc("GET /manage/{token}/newToken", makeAuthedRelay(newTokenHandler, nil, config.Bans))
+	mux.HandleFunc("GET /totplogin", makeAuthedRelay(totploginHandler, nil, config.Bans))
+	mux.HandleFunc("POST /totplogin", makeAuthedRelay(totploginHandler, nil, config.Bans))
 
 	for _, loopPtr := range config.Redirects {
 		relay := loopPtr
 		fmt.Printf("Adding route from %v, to %v\n", relay.From, relay.To)
+		// Convert gin-style :param to mux-style {param}
+		// and gin-style *api to mux-style {api...}
+		pattern := relay.From
+		// First handle wildcards like *api -> {api...}
+		if strings.Contains(pattern, "*") {
+			pattern = strings.Replace(pattern, "*", "{", 1)
+			pattern = pattern + "...}"
+		}
+		// Then handle path params like :token -> {token}
+		for strings.Contains(pattern, ":") {
+			start := strings.Index(pattern, ":")
+			end := start + 1
+			for end < len(pattern) && pattern[end] != '/' {
+				end++
+			}
+			paramName := pattern[start+1 : end]
+			pattern = pattern[:start] + "{" + paramName + "}" + pattern[end:]
+		}
+
 		switch relay.Tipe {
 		case "GET":
-			router.GET(relay.From, makeAuthedRelay(relayGetHandler, &relay, config.Bans))
+			mux.HandleFunc("GET "+pattern, makeAuthedRelay(relayGetHandler, &relay, config.Bans))
 		case "POST":
-			router.POST(relay.From, makeAuthedRelay(relayPostHandler, &relay, config.Bans))
+			mux.HandleFunc("POST "+pattern, makeAuthedRelay(relayPostHandler, &relay, config.Bans))
 		case "PUT":
-			router.PUT(relay.From, makeAuthedRelay(relayPutHandler, &relay, config.Bans))
+			mux.HandleFunc("PUT "+pattern, makeAuthedRelay(relayPutHandler, &relay, config.Bans))
 		default:
 			panic("Unsupported type for relay")
 		}
 	}
 
-	//These are required to handle oauth2
-	router.GET("/auth/:provider", redirectHandler)
-	router.GET("/auth/:provider/callback", callbackHandler)
+	// These are required to handle oauth2
+	mux.HandleFunc("GET /auth/{provider}", func(w http.ResponseWriter, r *http.Request) {
+		redirectHandler(&Context{Writer: w, Request: r})
+	})
+	mux.HandleFunc("GET /auth/{provider}/callback", func(w http.ResponseWriter, r *http.Request) {
+		callbackHandler(&Context{Writer: w, Request: r})
+	})
 
-	//Drop CSS and js libraries in here
-	router.Static("/files", "./files")
-	router.Static("/qrcodes", "./qrcodes")
-	router.Static("/favicon.ico", "./favicon.ico")
 	if develop {
-		router.GET("/develop/auth/callback", developCallbackHandler)
+		mux.HandleFunc("GET /develop/auth/callback", func(w http.ResponseWriter, r *http.Request) {
+			developCallbackHandler(&Context{Writer: w, Request: r})
+		})
 	}
 
 	if develop {
-		router.Run("127.0.0.1:8000")
+		fmt.Printf("Starting in development mode on 127.0.0.1:8000...\n")
+		log.Fatal(http.ListenAndServe("127.0.0.1:8000", mux))
 	} else {
 		if config.Secure {
-			log.Fatal(autotls.Run(router, config.HostNames...))
+			fmt.Printf("Starting in production mode with HTTPS...\n")
+			// Configure autocert manager for Let's Encrypt
+			certManager := autocert.Manager{
+				Prompt:     autocert.AcceptTOS,
+				HostPolicy: autocert.HostWhitelist(config.HostNames...),
+				Cache:      autocert.DirCache(".certs"), // Store certs in .certs directory
+			}
+
+			// HTTPS server on port 443
+			server := &http.Server{
+				Addr:    ":443",
+				Handler: mux,
+				TLSConfig: &tls.Config{
+					GetCertificate: certManager.GetCertificate,
+					MinVersion:     tls.VersionTLS12,
+				},
+			}
+
+			// HTTP server on port 80 - serves requests AND handles ACME challenges
+			go func() {
+				// HTTPHandler wraps our mux to also handle ACME challenges
+				h := certManager.HTTPHandler(mux)
+				log.Fatal(http.ListenAndServe(":80", h))
+			}()
+
+			log.Fatal(server.ListenAndServeTLS("", "")) // Certs provided by autocert
 		} else {
-			router.Run(fmt.Sprintf("127.0.0.1:%v", config.Port))
+			fmt.Printf("Starting in production mode on :80...\n")
+			log.Fatal(http.ListenAndServe(":80", mux))
 		}
 	}
 }
 
-func updateUserHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
+func updateUserHandler(c *Context, id string, token string, relay *Redirect, useCookie bool) {
 	user := LoadUser(id)
 	if user == nil {
 		panic("User not found for sessionid:" + token + "!")
@@ -257,7 +382,7 @@ func updateUserHandler(c *gin.Context, id string, token string, relay *Redirect,
 	return
 }
 
-func totploginHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
+func totploginHandler(c *Context, id string, token string, relay *Redirect, useCookie bool) {
 	r := c.Request
 	w := c.Writer
 	if err := r.ParseForm(); err != nil {
@@ -298,7 +423,7 @@ func totploginHandler(c *gin.Context, id string, token string, relay *Redirect, 
 }
 
 // Show homepage with login URL
-func frontPageHandler(c *gin.Context) {
+func frontPageHandler(c *Context) {
 	subs := map[string]string{}
 	if develop {
 
@@ -310,7 +435,7 @@ func frontPageHandler(c *gin.Context) {
 }
 
 // Show the user their revocable token
-func tokenShowHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
+func tokenShowHandler(c *Context, id string, token string, relay *Redirect, useCookie bool) {
 
 	user := LoadUser(id)
 	if user == nil {
@@ -331,7 +456,7 @@ func tokenShowHandler(c *gin.Context, id string, token string, relay *Redirect, 
 }
 
 // Show the user the successful login message
-func displayLoginSuccessfulPage(c *gin.Context, id string, sessionToken string) {
+func displayLoginSuccessfulPage(c *Context, id string, sessionToken string) {
 	displayPage(c,
 		//Add switch here for cookie/url token mode
 		sessionToken,
@@ -340,9 +465,9 @@ func displayLoginSuccessfulPage(c *gin.Context, id string, sessionToken string) 
 		nil)
 }
 
-func setupNewUser(c *gin.Context, foreignID string, token string) string {
+func setupNewUser(c *Context, foreignID string, token string) string {
 
-	u1, _ := uuid.NewV4()
+	u1 := uuid.NewV4()
 	fmt.Printf("new user UUIDv4: %s\n", u1)
 	user := userData_t{}
 	user.Id = u1.String()
@@ -356,14 +481,14 @@ func setupNewUser(c *gin.Context, foreignID string, token string) string {
 	return user.Token
 }
 
-func newTokenHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
+func newTokenHandler(c *Context, id string, token string, relay *Redirect, useCookie bool) {
 	sessionToken := newToken(id)
 	displayPage(c, sessionToken, "files/showToken.html", nil, nil)
 }
 
 // Display a html file, inserting the revocable session token as needed
-func displayPage(c *gin.Context, token, filename string, cookies map[string]string, subs map[string]string) {
-	templateb, _ := ioutil.ReadFile(filename)
+func displayPage(c *Context, token, filename string, cookies map[string]string, subs map[string]string) {
+	templateb, _ := os.ReadFile(filename)
 	template := string(templateb)
 	template = templateSet(template, "TOKEN", token)
 	template = templateSet(template, "BASE", baseUrl)
@@ -381,7 +506,7 @@ func displayPage(c *gin.Context, token, filename string, cookies map[string]stri
 }
 
 // Redirect to default microservice, using PUT
-func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
+func relayPutHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 
 	api := c.Param("api")
 	log.Printf("PUT api : %v with id %v\n", api, id)
@@ -416,14 +541,14 @@ func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 		req.Header.Add(h, c.Request.Header.Get(h))
 	}
 
-	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
+	req.Body = io.NopCloser(bytes.NewReader(bodyData))
 
 	log.Printf("PUT %v\n", req.URL)
 
 	//Do it
 	resp, err := client.Do(req)
 	check(err)
-	respData, err := ioutil.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 	check(err)
 
 	//Copy back the bare minimum needed
@@ -437,7 +562,7 @@ func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 }
 
 // Redirect to default microservice, using POST
-func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
+func relayPostHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 
 	api := c.Param("api")
 	log.Printf("POST api : %v with id %v\n", api, id)
@@ -457,7 +582,6 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 
-
 	CopyHeaders := relay.CopyHeaders
 	log.Printf("Forwarding headers %v\n", CopyHeaders)
 	log.Printf("Request %+v\n", c)
@@ -476,7 +600,7 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 	req.Header.Add("X-Forwarded-Host", c.Request.Host)
 
 	log.Printf("Sending Request %+v\n", req)
-	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
+	req.Body = io.NopCloser(bytes.NewReader(bodyData))
 
 	log.Printf("POST %v\n", req.URL)
 
@@ -485,7 +609,7 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 	var respData []byte
 	if resp != nil {
 		if resp.Body != nil {
-			respData, err = ioutil.ReadAll(resp.Body)
+			respData, err = io.ReadAll(resp.Body)
 			check(err)
 		}
 
@@ -503,7 +627,7 @@ func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 			fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 	} else {
 		log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
-		log.Printf("redirect failed %+V\n", resp)
+		log.Printf("redirect failed %+v\n", resp)
 
 	}
 }
@@ -522,7 +646,7 @@ func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redir
 }
 
 // Redirect to default microservice, using GET
-func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
+func relayGetHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 
 	api := c.Param("api")
 
@@ -562,7 +686,7 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
 	resp, err := client.Do(req)
 	check(err)
-	respData, err := ioutil.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Header("Content-Disposition", resp.Header.Get("Content-Disposition"))
@@ -573,7 +697,7 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 }
 
 // Redirect to correct oAuth URL
-func redirectHandler(c *gin.Context) {
+func redirectHandler(c *Context) {
 	// Retrieve provider from route
 	provider := c.Param("provider")
 
@@ -695,7 +819,7 @@ func newToken(id string) string {
 }
 
 // Handle callback of providers - google, facebook etc
-func callbackHandler(c *gin.Context) {
+func callbackHandler(c *Context) {
 	// Retrieve query params for state and code
 	state := c.Query("state")
 	code := c.Query("code")
@@ -727,7 +851,7 @@ func callbackHandler(c *gin.Context) {
 }
 
 // Handle callback of providers - google, facebook etc
-func developCallbackHandler(c *gin.Context) {
+func developCallbackHandler(c *Context) {
 	if develop {
 
 		id := "1"
@@ -754,7 +878,7 @@ func developCallbackHandler(c *gin.Context) {
 //
 //Eventually, combine this with the rest of the code using configuration files
 
-func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
+func ngfileserverRelayParameterisedHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 	c.Header("Cache-Control", "no-cache,no-store")
 	api := c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
@@ -770,7 +894,7 @@ func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, rel
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 	log.Printf("Relaying call to %v\n", req.URL)
 	resp, err := client.Do(req)
-	respData, err := ioutil.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 	check(err)
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Status(resp.StatusCode)
@@ -778,7 +902,7 @@ func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, rel
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
-func ngfileserverRelayHandler(c *gin.Context, id, token, target string) {
+func ngfileserverRelayHandler(c *Context, id, token, target string) {
 
 	api := c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
@@ -794,13 +918,13 @@ func ngfileserverRelayHandler(c *gin.Context, id, token, target string) {
 	req.Header.Add("authentigate-base-url", completeBaseUrl)
 	log.Printf("Relaying call to %v\n", req.URL)
 	resp, err := client.Do(req)
-	respData, err := ioutil.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 	check(err)
 	c.Writer.Write(respData)
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
-func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
+func ngfileserverPutRelayHandler(c *Context, id, token, target string) {
 
 	api := c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
@@ -820,10 +944,10 @@ func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
 		req.Header.Add(h, c.Request.Header.Get(h))
 	}
 	bodyData, _ := ioutil.ReadAll(c.Request.Body)
-	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
+	req.Body = io.NopCloser(bytes.NewReader(bodyData))
 	log.Printf("Relaying put call to %v\n", req.URL)
 	resp, err := client.Do(req)
-	respData, err := ioutil.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 	check(err)
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Status(resp.StatusCode)

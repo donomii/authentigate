@@ -1,13 +1,14 @@
 package main
-import (
 
+import (
 	"log"
 	"net/http"
 	"net/url"
+
 	"github.com/gorilla/websocket"
-	"github.com/donomii/gin"
 )
-func upgradeAndHandle(c *gin.Context, req *http.Request) {
+
+func upgradeAndHandle(c *Context, req *http.Request) {
 	ws, err := upGrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Println("error get connection")
