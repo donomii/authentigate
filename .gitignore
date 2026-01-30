@@ -19,3 +19,7 @@ authentigate_*
 demo/shop.json
 demo/userdata/*
 .gomodcache/
+
+# Binaries
+vhoster/vhoster
+authentigate
