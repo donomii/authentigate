@@ -86,8 +86,7 @@ The goal is to remove `github.com/donomii/gin` while preserving OAuth2, TOTP, an
     -   Convert `func(c *gin.Context)` to `func(next http.Handler) http.Handler` or a wrapper function `func(w, r)` that calls the handler.
 
 4.  **Response Helpers**:
-    -   Replace `c.JSON`, `c.String` with standard JSON encoding and `w.Write`.
-    -   Replace `c.Redirect` with `http.Redirect`.
+    -   Add them to our context wrapper
 
 5.  **Static Files**:
     -   Replace `router.Static` with `http.FileServer`.

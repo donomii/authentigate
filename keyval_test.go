@@ -10,10 +10,36 @@ import (
 // Note: These tests require the authDB to be properly initialized
 // They test the public interface (SaveUser, LoadUser, etc.)
 
+// TestMain handles setup and teardown
+func TestMain(m *testing.M) {
+	// Setup
+	tmpDir, err := os.MkdirTemp("", "authentigate_test_")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Set db_prefix to use temp dir
+	originalPrefix := db_prefix
+	db_prefix = tmpDir + "/"
+	defer func() { db_prefix = originalPrefix }()
+
+	// Initialize DB
+	var shutdown func()
+	b, err, shutdown = newAuthDB(db_prefix)
+	if err != nil {
+		panic(err)
+	}
+	defer shutdown()
+
+	// Run tests
+	os.Exit(m.Run())
+}
+
+// ===== User Save/Load Tests =====
+
 // TestSaveAndLoadUserIntegration tests user persistence
 func TestSaveAndLoadUserIntegration(t *testing.T) {
-	t.Skip("Requires database initialization - enable after go mod tidy")
-
 	user := &userData_t{
 		Id:         "user-test-123",
 		ForeignIDs: []string{"google-abc", "github-def"},
@@ -48,8 +74,6 @@ func TestSaveAndLoadUserIntegration(t *testing.T) {
 
 // TestLoadUserNonexistent tests LoadUser for nonexistent user
 func TestLoadUserNonexistent(t *testing.T) {
-	t.Skip("Requires database initialization - enable after go mod tidy")
-
 	user := LoadUser("nonexistent-user-id-xyz")
 	if user != nil {
 		t.Error("LoadUser should return nil for nonexistent user")
@@ -60,18 +84,29 @@ func TestLoadUserNonexistent(t *testing.T) {
 
 // TestSessionTokenToIdIntegration tests session token lookup
 func TestSessionTokenToIdIntegration(t *testing.T) {
-	t.Skip("Requires database initialization - enable after go mod tidy")
+	// Setup user first
+	user := &userData_t{
+		Id:    "user-for-token",
+		Token: "test-session-token",
+	}
+	SaveUser(user)
 
-	// This test requires b.SessionTokens to be initialized
+	// Also need to save the token mapping explicitly as newToken() does
+	// But since we can't easily call newToken() without full context,
+	// we'll rely on the fact that SaveUser saves the user, but sessionTokenToId reads from b.SessionTokens.
+	// We need to manually put it there for this test or use a higher level function.
+	// keyval.go/SaveUser doesn't save to SessionTokens store, newToken does.
+	// So let's manually put it.
+	b.SessionTokens.Set("test-session-token", []byte("user-for-token"))
+
 	id := sessionTokenToId("test-session-token")
-	// Just verify it doesn't panic
-	_ = id
+	if id != "user-for-token" {
+		t.Errorf("sessionTokenToId mismatch: got %s, want %s", id, "user-for-token")
+	}
 }
 
 // TestSessionTokenToIdNonexistent tests session token lookup for nonexistent token
 func TestSessionTokenToIdNonexistent(t *testing.T) {
-	t.Skip("Requires database initialization - enable after go mod tidy")
-
 	id := sessionTokenToId("nonexistent-token")
 	if id != "" {
 		t.Errorf("sessionTokenToId should return empty for nonexistent token, got %s", id)
@@ -82,18 +117,17 @@ func TestSessionTokenToIdNonexistent(t *testing.T) {
 
 // TestForeignIdToIdIntegration tests foreign ID lookup
 func TestForeignIdToIdIntegration(t *testing.T) {
-	t.Skip("Requires database initialization - enable after go mod tidy")
+	// Manually set foreign ID mapping
+	b.ForeignIDs.Set("google-user-123", []byte("user-linked-to-google"))
 
-	// This test requires b.ForeignIDs to be initialized
 	id := foreignIdToId("google-user-123")
-	// Just verify it doesn't panic
-	_ = id
+	if id != "user-linked-to-google" {
+		t.Errorf("foreignIdToId mismatch: got %s, want %s", id, "user-linked-to-google")
+	}
 }
 
 // TestForeignIdToIdNonexistent tests foreign ID lookup for nonexistent ID
 func TestForeignIdToIdNonexistent(t *testing.T) {
-	t.Skip("Requires database initialization - enable after go mod tidy")
-
 	id := foreignIdToId("nonexistent-foreign-id")
 	if id != "" {
 		t.Errorf("foreignIdToId should return empty for nonexistent ID, got %s", id)

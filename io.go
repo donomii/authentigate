@@ -47,7 +47,7 @@ func LoadConfig(file string) *Config {
 
 // Given a session token, find the authentigate id
 func sessionTokenToId(sessionToken string) string {
-	var id string
+	var id []byte
 	found, err := b.SessionTokens.Get(sessionToken, &id)
 	if !found {
 		log.Println("Could not find sessionToken", sessionToken, "in token store")
@@ -63,14 +63,14 @@ func sessionTokenToId(sessionToken string) string {
 
 // Given a provider id (string is provider name + provider id), find the authentigate id
 func foreignIdToId(fid string) string {
-	var id string
+	var id []byte
 	found, err := b.ForeignIDs.Get(fid, &id)
 	if !found {
 		return ""
 	}
 	check(err)
 
-	log.Printf("id %v from fid %v", id, fid)
+	log.Printf("id %v from fid %v", string(id), fid)
 	return string(id)
 }
 
