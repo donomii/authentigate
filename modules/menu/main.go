@@ -264,6 +264,7 @@ func displayNiceMainMenu(c *Context, prefix string) {
 		[]string{"ngfileserver/summary", "Files", ""},
 		[]string{"fe/shop", "Shop Demo", ""},
 		[]string{"presence/room", "Presence", ""},
+		[]string{"cameraview/", "Cameras", ""},
 	})
 	c.Writer.Write([]byte(page))
 }

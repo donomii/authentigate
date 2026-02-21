@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -253,8 +254,18 @@ func main() {
 	mux.HandleFunc("GET /manage/{token}/updateUser", makeAuthedRelay(updateUserHandler, nil, config.Bans))
 	mux.HandleFunc("POST /manage/{token}/updateUser", makeAuthedRelay(updateUserHandler, nil, config.Bans))
 	mux.HandleFunc("GET /manage/{token}/newToken", makeAuthedRelay(newTokenHandler, nil, config.Bans))
-	mux.HandleFunc("GET /totplogin", makeAuthedRelay(totploginHandler, nil, config.Bans))
-	mux.HandleFunc("POST /totplogin", makeAuthedRelay(totploginHandler, nil, config.Bans))
+	mux.HandleFunc("GET /totplogin", func(w http.ResponseWriter, r *http.Request) {
+		totploginHandler(&Context{Writer: w, Request: r}, "", "", nil, false)
+	})
+	mux.HandleFunc("POST /totplogin", func(w http.ResponseWriter, r *http.Request) {
+		totploginHandler(&Context{Writer: w, Request: r}, "", "", nil, false)
+	})
+	mux.HandleFunc("GET /totpsignup", func(w http.ResponseWriter, r *http.Request) {
+		totpsignupHandler(&Context{Writer: w, Request: r})
+	})
+	mux.HandleFunc("POST /totpsignup", func(w http.ResponseWriter, r *http.Request) {
+		totpsignupHandler(&Context{Writer: w, Request: r})
+	})
 
 	for _, loopPtr := range config.Redirects {
 		relay := loopPtr
@@ -305,11 +316,12 @@ func main() {
 	}
 
 	if develop {
-		fmt.Printf("Starting in development mode on 127.0.0.1:8000...\n")
-		log.Fatal(http.ListenAndServe("127.0.0.1:8000", mux))
+		addr := fmt.Sprintf("127.0.0.1:%d", config.Port)
+		fmt.Printf("Starting in development mode on %s...\n", addr)
+		log.Fatal(http.ListenAndServe(addr, mux))
 	} else {
 		if config.Secure {
-			fmt.Printf("Starting in production mode with HTTPS...\n")
+			fmt.Printf("Starting in production mode with HTTPS on :443 (TLS) and :%d (ACME challenges)...\n", config.Port)
 			// Configure autocert manager for Let's Encrypt
 			certManager := autocert.Manager{
 				Prompt:     autocert.AcceptTOS,
@@ -317,27 +329,30 @@ func main() {
 				Cache:      autocert.DirCache(".certs"), // Store certs in .certs directory
 			}
 
-			// HTTPS server on port 443
+			// HTTPS server on port 443.
+			// Use certManager.TLSConfig() so that the ACME TLS-ALPN-01 challenge
+			// handler is wired in (sets NextProtos to include "acme-tls/1").
+			tlsCfg := certManager.TLSConfig()
+			tlsCfg.MinVersion = tls.VersionTLS12
 			server := &http.Server{
-				Addr:    ":443",
-				Handler: mux,
-				TLSConfig: &tls.Config{
-					GetCertificate: certManager.GetCertificate,
-					MinVersion:     tls.VersionTLS12,
-				},
+				Addr:      ":443",
+				Handler:   mux,
+				TLSConfig: tlsCfg,
 			}
 
-			// HTTP server on port 80 - serves requests AND handles ACME challenges
+			// HTTP server on config.Port - serves requests AND handles ACME challenges
 			go func() {
-				// HTTPHandler wraps our mux to also handle ACME challenges
 				h := certManager.HTTPHandler(mux)
-				log.Fatal(http.ListenAndServe(":80", h))
+				addr := fmt.Sprintf(":%d", config.Port)
+				fmt.Printf("HTTP listening on %s\n", addr)
+				log.Fatal(http.ListenAndServe(addr, h))
 			}()
 
 			log.Fatal(server.ListenAndServeTLS("", "")) // Certs provided by autocert
 		} else {
-			fmt.Printf("Starting in production mode on :80...\n")
-			log.Fatal(http.ListenAndServe(":80", mux))
+			addr := fmt.Sprintf(":%d", config.Port)
+			fmt.Printf("Starting in production mode on %s...\n", addr)
+			log.Fatal(http.ListenAndServe(addr, mux))
 		}
 	}
 }
@@ -397,29 +412,122 @@ func totploginHandler(c *Context, id string, token string, relay *Redirect, useC
 	}
 
 	code := r.FormValue("code")
+
+	// Check full users first
 	var userId string
 	found, err := b.UserNames.Get(username, &userId)
 	if err != nil {
-		fmt.Fprintf(w, "Error: %v", err)
+		fmt.Fprintf(w, "Error looking up user: %v", err)
 		return
 	}
-	if !found {
-		fmt.Fprintf(w, "User not found")
+	if found {
+		user := LoadUser(userId)
+		if user == nil {
+			fmt.Fprintf(w, "User record missing for username: %s", username)
+			return
+		}
+		totp := gotp.NewDefaultTOTP(user.OtpSecret)
+		if !totp.Verify(code, time.Now().Unix()) {
+			fmt.Fprintf(w, "Invalid code")
+			return
+		}
+		displayLoginSuccessfulPage(c, userId, user.Token)
 		return
 	}
-	user := LoadUser(userId)
-	if user == nil {
-		fmt.Fprintf(w, "User not found")
-		return
-	}
-	totp := gotp.NewDefaultTOTP(user.OtpSecret)
-	ok := totp.Verify(code, time.Now().Unix())
+
+	// Check pending users
+	ps := loadPending()
+	pending, ok := ps.get(username)
 	if !ok {
+		fmt.Fprintf(w, "User not found")
+		return
+	}
+	if !pending.Approved {
+		displayPage(c, "", "files/totppending.html", nil, nil)
+		return
+	}
+
+	// Approved pending user: verify code then promote to full user
+	totp := gotp.NewDefaultTOTP(pending.OtpSecret)
+	if !totp.Verify(code, time.Now().Unix()) {
 		fmt.Fprintf(w, "Invalid code")
 		return
 	}
-	displayLoginSuccessfulPage(c, userId, user.Token)
+	sessionToken := setupTOTPUser(c, username, pending.OtpSecret)
+	if err := ps.remove(username); err != nil {
+		log.Printf("Failed to remove pending user %s: %v", username, err)
+	}
+	displayLoginSuccessfulPage(c, "", sessionToken)
+}
 
+// Promote an approved pending TOTP user to a full user account
+func setupTOTPUser(c *Context, username, otpSecret string) string {
+	u1 := uuid.NewV4()
+	user := userData_t{}
+	user.Id = u1.String()
+	user.UserName = username
+	user.OtpSecret = otpSecret
+	user.QRcode = generateTOTPWithSecret(otpSecret, username)
+	SaveUser(&user)
+	user.Token = newToken(user.Id)
+	b.UserNames.Set(username, user.Id)
+	return user.Token
+}
+
+func totpsignupHandler(c *Context) {
+	r := c.Request
+	w := c.Writer
+	if err := r.ParseForm(); err != nil {
+		fmt.Fprintf(w, "ParseForm() err: %v", err)
+		return
+	}
+	username := r.FormValue("username")
+	const signupForm = `<form action="/totpsignup" method="post">
+  <p>Username: <input type="text" name="username"/></p>
+  <p><input type="submit" value="Sign up"/></p>
+</form>`
+
+	if username == "" {
+		displayPage(c, "", "files/totpsignup.html", nil, map[string]string{"ERROR": "", "MESSAGE": "", "QRCODE_BLOCK": "", "SIGNUP_FORM": signupForm})
+		return
+	}
+
+	// Check username not already taken by a full user
+	var existingId string
+	found, err := b.UserNames.Get(username, &existingId)
+	if err != nil {
+		fmt.Fprintf(w, "Error checking username: %v", err)
+		return
+	}
+	if found {
+		displayPage(c, "", "files/totpsignup.html", nil, map[string]string{"ERROR": "Username already taken", "MESSAGE": "", "QRCODE_BLOCK": "", "SIGNUP_FORM": signupForm})
+		return
+	}
+
+	// Check not already pending
+	ps := loadPending()
+	if ps.exists(username) {
+		displayPage(c, "", "files/totpsignup.html", nil, map[string]string{"ERROR": "Username already registered and awaiting approval", "MESSAGE": "", "QRCODE_BLOCK": "", "SIGNUP_FORM": signupForm})
+		return
+	}
+
+	// Generate secret and QR code
+	otpSecret := gotp.RandomSecret(16)
+	qrPng := generateTOTPWithSecret(otpSecret, username)
+	qrDataURI := fmt.Sprintf("data:image/png;base64,%s", base64.StdEncoding.EncodeToString(qrPng))
+
+	if err := ps.add(username, otpSecret); err != nil {
+		fmt.Fprintf(w, "Error saving signup: %v", err)
+		return
+	}
+
+	log.Printf("New TOTP signup pending approval: %s", username)
+	displayPage(c, "", "files/totpsignup.html", nil, map[string]string{
+		"ERROR":        "",
+		"MESSAGE":      "<strong>Scan the QR code now with your authenticator app — it will not be shown again.</strong><br/>Once scanned, wait for approval before logging in.",
+		"QRCODE_BLOCK": fmt.Sprintf("<img src='%s'/><br/>", qrDataURI),
+		"SIGNUP_FORM":  "",
+	})
 }
 
 // Show homepage with login URL
@@ -508,7 +616,7 @@ func displayPage(c *Context, token, filename string, cookies map[string]string, 
 // Redirect to default microservice, using PUT
 func relayPutHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 
-	api := c.Param("api")
+	api := "/" + c.Param("api")
 	log.Printf("PUT api : %v with id %v\n", api, id)
 	bodyData, _ := ioutil.ReadAll(c.Request.Body)
 	client := &http.Client{}
@@ -564,7 +672,7 @@ func relayPutHandler(c *Context, id, token string, relay *Redirect, useCookie bo
 // Redirect to default microservice, using POST
 func relayPostHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 
-	api := c.Param("api")
+	api := "/" + c.Param("api")
 	log.Printf("POST api : %v with id %v\n", api, id)
 	fmt.Printf("POST api : %v with id %v\n", api, id)
 	bodyData, err := ioutil.ReadAll(c.Request.Body)
@@ -645,10 +753,61 @@ func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redir
 	req.Header.Add("authentigate-top-url", siteTopUrl)
 }
 
+// isStreamingContentType returns true for content types that must be proxied
+// as a live stream rather than buffered (e.g. MJPEG multipart responses).
+func isStreamingContentType(ct string) bool {
+	return strings.HasPrefix(ct, "multipart/x-mixed-replace")
+}
+
+// relayStreamHandler proxies a streaming response (e.g. MJPEG) without buffering.
+// It copies bytes as they arrive and flushes after each chunk.
+func relayStreamHandler(c *Context, id, token string, relay *Redirect, useCookie bool, req *http.Request, resp *http.Response) {
+	defer resp.Body.Close()
+
+	for k, vs := range resp.Header {
+		for _, v := range vs {
+			c.Writer.Header().Add(k, v)
+		}
+	}
+	c.Writer.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Writer.Header().Set("Pragma", "no-cache")
+	c.Writer.WriteHeader(resp.StatusCode)
+
+	flusher, canFlush := c.Writer.(http.Flusher)
+
+	ctx := c.Request.Context()
+	go func() {
+		<-ctx.Done()
+		resp.Body.Close()
+	}()
+
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := c.Writer.Write(buf[:n]); writeErr != nil {
+				if ctx.Err() == nil {
+					log.Printf("relayStreamHandler: write failed for %v: %v", req.URL, writeErr)
+				}
+				return
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF && ctx.Err() == nil {
+				log.Printf("relayStreamHandler: read ended for %v: %v", req.URL, readErr)
+			}
+			return
+		}
+	}
+}
+
 // Redirect to default microservice, using GET
 func relayGetHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 
-	api := c.Param("api")
+	api := "/" + c.Param("api")
 
 	client := &http.Client{}
 
@@ -686,6 +845,16 @@ func relayGetHandler(c *Context, id, token string, relay *Redirect, useCookie bo
 	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
 	resp, err := client.Do(req)
 	check(err)
+
+	// If the backend is sending a streaming response (e.g. MJPEG), proxy it
+	// as a live stream rather than buffering the whole body.
+	if isStreamingContentType(resp.Header.Get("Content-Type")) {
+		log.Printf("relayGetHandler: streaming response for %v", req.URL)
+		relayStreamHandler(c, id, token, relay, useCookie, req, resp)
+		accessLog.Write([]byte(format_clf(c, id, "200", "-") + "\n"))
+		return
+	}
+
 	respData, err := io.ReadAll(resp.Body)
 
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
@@ -706,12 +875,16 @@ func redirectHandler(c *Context) {
 		providerSecrets = map[string]map[string]string{}
 		configData, err := ioutil.ReadFile("provider_secrets.json")
 		if err != nil {
-			panic(fmt.Sprintf("Could not read provider secrets from file provider_secrets.json: %v", err))
+			log.Printf("redirectHandler: could not read provider_secrets.json: %v", err)
+			http.Error(c.Writer, "OAuth not configured", http.StatusNotFound)
+			return
 		}
 
 		err = json.Unmarshal(configData, &providerSecrets)
 		if err != nil {
-			panic(fmt.Sprintf("Failed to parse provider secrets file provider_secrets.json: %v", err))
+			log.Printf("redirectHandler: failed to parse provider_secrets.json: %v", err)
+			http.Error(c.Writer, "OAuth misconfigured", http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -800,7 +973,7 @@ func generateTOTPWithSecret(secret, username string) []byte {
 func newToken(id string) string {
 	sessionToken := fmt.Sprintf("%v", r.Int())
 	log.Printf("Setting id:token %v:%v\n", id, sessionToken)
-	b.Put("sessionTokens", sessionToken, []byte(id))
+	b.SessionTokens.Set(sessionToken, id)
 
 	user := LoadUser(id)
 
@@ -810,7 +983,9 @@ func newToken(id string) string {
 
 	user.Token = sessionToken
 
-	user.OtpSecret = gotp.RandomSecret(16)
+	if user.OtpSecret == "" {
+		user.OtpSecret = gotp.RandomSecret(16)
+	}
 	if user.UserName != "" {
 		user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
 	}
@@ -880,7 +1055,7 @@ func developCallbackHandler(c *Context) {
 
 func ngfileserverRelayParameterisedHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 	c.Header("Cache-Control", "no-cache,no-store")
-	api := c.Param("api")
+	api := "/" + c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
 
 	client := &http.Client{}
@@ -904,7 +1079,7 @@ func ngfileserverRelayParameterisedHandler(c *Context, id, token string, relay *
 
 func ngfileserverRelayHandler(c *Context, id, token, target string) {
 
-	api := c.Param("api")
+	api := "/" + c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
 
 	completeBaseUrl := fmt.Sprintf("%v%v/ngfileserver/", baseUrl, token)
@@ -926,7 +1101,7 @@ func ngfileserverRelayHandler(c *Context, id, token, target string) {
 
 func ngfileserverPutRelayHandler(c *Context, id, token, target string) {
 
-	api := c.Param("api")
+	api := "/" + c.Param("api")
 	log.Printf("api call: %v with id %v\n", api, id)
 
 	completeBaseUrl := fmt.Sprintf("%v%v/ngfileserver/", baseUrl, token)

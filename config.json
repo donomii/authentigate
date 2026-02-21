@@ -100,9 +100,16 @@
 			"From": "/secure/:token/fe/*api",
 			"To": "http://localhost:8099/fe/api/v1",
 			"Tipe": "GET"
+		},
+		{
+			"Name": "cameraview",
+			"From": "/secure/:token/cameraview/*api",
+			"To": "http://localhost:8094/cameraview",
+			"Tipe": "GET"
 		}
 	],
-	"Port": 97,
+	"Port": 8081,
+	"Secure": true,
 	"BaseUrl": "https://entirety.praeceptamachinae.com/secure/",
 	"Bans": ["presence"],
 	"HostNames": [

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Camera View</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #111;
+      color: #eee;
+      font-family: sans-serif;
+    }
+
+    h1 {
+      padding: 0.6em 1em;
+      font-size: 1.2em;
+      background: #222;
+      border-bottom: 1px solid #333;
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+      gap: 4px;
+      padding: 4px;
+    }
+
+    .camera-cell {
+      background: #000;
+      position: relative;
+      aspect-ratio: 16/9;
+      overflow: hidden;
+    }
+
+    .camera-cell img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .camera-label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 4px 8px;
+      background: rgba(0,0,0,0.55);
+      font-size: 0.85em;
+    }
+
+    .camera-cell .error-msg {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #f66;
+      font-size: 0.9em;
+      text-align: center;
+      display: none;
+    }
+
+    #loading {
+      padding: 2em;
+      text-align: center;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <h1>Camera View</h1>
+  <div id="loading">Loading cameras…</div>
+  <div id="grid"></div>
+
+  <script>
+    (function () {
+      // Derive the base path from where this page is served so it works
+      // behind any authentigate prefix.
+      var base = window.location.pathname.replace(/\/$/, "");
+      // base is something like /secure/<token>/cameraview
+      // strip trailing /cameraview to get the token prefix, then re-add /cameraview
+      var streamBase = base;
+
+      fetch(streamBase + "/list")
+        .then(function (r) {
+          if (!r.ok) throw new Error("list fetch failed: " + r.status);
+          return r.json();
+        })
+        .then(function (cameras) {
+          var loading = document.getElementById("loading");
+          var grid = document.getElementById("grid");
+          loading.style.display = "none";
+
+          if (!cameras || cameras.length === 0) {
+            loading.textContent = "No cameras configured.";
+            loading.style.display = "block";
+            return;
+          }
+
+          cameras.forEach(function (cam) {
+            var cell = document.createElement("div");
+            cell.className = "camera-cell";
+
+            var img = document.createElement("img");
+            img.alt = cam.name;
+            img.src = streamBase + "/stream/" + cam.id;
+
+            var errMsg = document.createElement("div");
+            errMsg.className = "error-msg";
+            errMsg.textContent = "Stream unavailable";
+
+            img.onerror = function () {
+              errMsg.style.display = "block";
+              // Retry after 5 seconds
+              setTimeout(function () {
+                errMsg.style.display = "none";
+                img.src = streamBase + "/stream/" + cam.id + "?t=" + Date.now();
+              }, 5000);
+            };
+
+            var label = document.createElement("div");
+            label.className = "camera-label";
+            label.textContent = cam.name;
+
+            cell.appendChild(img);
+            cell.appendChild(errMsg);
+            cell.appendChild(label);
+            grid.appendChild(cell);
+          });
+        })
+        .catch(function (err) {
+          var loading = document.getElementById("loading");
+          loading.textContent = "Error loading camera list: " + err.message;
+          loading.style.display = "block";
+          console.error(err);
+        });
+    })();
+  </script>
+</body>
+</html>
