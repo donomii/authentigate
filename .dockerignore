@@ -1,0 +1,17 @@
+.git
+.gitignore
+
+# Build artifacts
+/authentigate
+/modules/menu/menu
+/modules/cameraview/cameraview
+
+# Runtime data
+/accessLog
+/.certs
+/authentigate_*
+/modules/menu/datastore
+/totp_pending.json
+
+# Secrets
+/provider_secrets.json

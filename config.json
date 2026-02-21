@@ -110,6 +110,7 @@
 	],
 	"Port": 8081,
 	"Secure": true,
+	"OAuthEnabled": false,
 	"BaseUrl": "https://entirety.praeceptamachinae.com/secure/",
 	"Bans": ["presence"],
 	"HostNames": [

@@ -122,6 +122,7 @@ var accessLog io.Writer
 var db_prefix string = "authentigate_"
 var providerSecrets map[string]map[string]string
 var r *rand.Rand
+var oauthEnabled = false
 
 // Turn errors into panics so we can catch them in the otp level handler and log them
 func check(e error) {
@@ -203,6 +204,7 @@ type Config struct {
 	Bans      []string
 	LogFile   string
 	Secure    bool
+	OAuthEnabled bool
 }
 
 var config *Config
@@ -216,6 +218,7 @@ func main() {
 	if config.BaseUrl != "" {
 		baseUrl = config.BaseUrl
 	}
+	oauthEnabled = config.OAuthEnabled
 	var err error
 	var f *os.File
 	f, err = os.Create("accessLog")
@@ -301,13 +304,23 @@ func main() {
 		}
 	}
 
-	// These are required to handle oauth2
-	mux.HandleFunc("GET /auth/{provider}", func(w http.ResponseWriter, r *http.Request) {
-		redirectHandler(&Context{Writer: w, Request: r})
-	})
-	mux.HandleFunc("GET /auth/{provider}/callback", func(w http.ResponseWriter, r *http.Request) {
-		callbackHandler(&Context{Writer: w, Request: r})
-	})
+	if oauthEnabled {
+		// These are required to handle oauth2
+		mux.HandleFunc("GET /auth/{provider}", func(w http.ResponseWriter, r *http.Request) {
+			redirectHandler(&Context{Writer: w, Request: r})
+		})
+		mux.HandleFunc("GET /auth/{provider}/callback", func(w http.ResponseWriter, r *http.Request) {
+			callbackHandler(&Context{Writer: w, Request: r})
+		})
+	} else {
+		// Explicitly disable OAuth endpoints when turned off.
+		mux.HandleFunc("GET /auth/{provider}", func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
+		mux.HandleFunc("GET /auth/{provider}/callback", func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
+	}
 
 	if develop {
 		mux.HandleFunc("GET /develop/auth/callback", func(w http.ResponseWriter, r *http.Request) {
@@ -867,6 +880,10 @@ func relayGetHandler(c *Context, id, token string, relay *Redirect, useCookie bo
 
 // Redirect to correct oAuth URL
 func redirectHandler(c *Context) {
+	if !oauthEnabled {
+		http.NotFound(c.Writer, c.Request)
+		return
+	}
 	// Retrieve provider from route
 	provider := c.Param("provider")
 
@@ -995,6 +1012,10 @@ func newToken(id string) string {
 
 // Handle callback of providers - google, facebook etc
 func callbackHandler(c *Context) {
+	if !oauthEnabled {
+		http.NotFound(c.Writer, c.Request)
+		return
+	}
 	// Retrieve query params for state and code
 	state := c.Query("state")
 	code := c.Query("code")

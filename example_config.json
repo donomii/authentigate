@@ -11,5 +11,6 @@
 	"HostNames": [
 		"www.mydomain.com"
 	],
-	"LogFile": "accessLog"
+	"LogFile": "accessLog",
+	"OAuthEnabled": false
 }
