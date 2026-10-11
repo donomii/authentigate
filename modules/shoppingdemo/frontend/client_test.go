@@ -69,7 +69,8 @@ func TestStateChangesRequirePostAndUserBoundForm(t *testing.T) {
 		for _, request := range []*http.Request{
 			httptest.NewRequest(http.MethodGet, endpoint, nil),
 			httptest.NewRequest(http.MethodPost, endpoint, nil),
-			authorizedForm(endpoint, "other-user", "other-token"),
+			authorizedForm(endpoint, "other-user", "gateway-token"),
+			authorizedForm(endpoint, "buyer", "other-token"),
 		} {
 			request.Header.Set("authentigate-id", "buyer")
 			request.Header.Set("authentigate-token", "gateway-token")
@@ -89,7 +90,10 @@ func TestStateChangesRequirePostAndUserBoundForm(t *testing.T) {
 func TestCheckoutPostsDemoOrderWithoutCardFields(t *testing.T) {
 	router := shopFiles(t, map[string]string{"basket": `{"orange":1}`, "checkout": `{"orange":4}`, "purchase": `{"orange":4}`})
 	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/checkout", nil))
+	checkoutRequest := httptest.NewRequest(http.MethodGet, "/checkout", nil)
+	checkoutRequest.Header.Set("authentigate-id", "buyer")
+	checkoutRequest.Header.Set("authentigate-token", "gateway-token")
+	router.ServeHTTP(response, checkoutRequest)
 	page := response.Body.String()
 	if response.Code != http.StatusOK || !strings.Contains(page, `method="post" action="purchase"`) || !strings.Contains(page, "without collecting payment") {
 		t.Fatalf("checkout does not explain demo order behavior: status %d, body %s", response.Code, page)
@@ -103,12 +107,32 @@ func TestCheckoutPostsDemoOrderWithoutCardFields(t *testing.T) {
 	if len(token) != 2 {
 		t.Fatal("checkout form does not contain its authorization token")
 	}
+	const expectedSignature = "a38157044a8f91029f56ce2f851ff2894ef5f510af750c7eadd7beda81918f22"
+	if token[1] != expectedSignature {
+		t.Fatalf("checkout signature depends on more than the trusted session and user: received %s", token[1])
+	}
 	request := httptest.NewRequest(http.MethodPost, "/purchase", strings.NewReader(url.Values{"csrf": {token[1]}}.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("authentigate-id", "buyer")
+	request.Header.Set("authentigate-token", "gateway-token")
 	response = httptest.NewRecorder()
-	router.ServeHTTP(response, request)
+	secondInstance := gin.New()
+	serveDemo(secondInstance, "/")
+	secondInstance.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Demo order recorded") || !strings.Contains(response.Body.String(), "No payment was collected") {
 		t.Fatalf("valid demo order form failed: status %d, body %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMissingTrustedTokenCannotAuthorizeMutations(t *testing.T) {
+	router := shopFiles(t, nil)
+	for _, endpoint := range []string{"/purchase", "/addItem", "/coupon"} {
+		request := authorizedForm(endpoint, "buyer", "")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "trusted authenticated session token") {
+			t.Fatalf("%s accepted a missing session token: status %d, body %s", endpoint, response.Code, response.Body.String())
+		}
 	}
 }
 

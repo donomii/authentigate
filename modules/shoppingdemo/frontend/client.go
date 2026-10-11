@@ -52,6 +52,10 @@ func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Cont
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
 		if c.Request.Method == http.MethodPost {
+			if c.GetHeader("authentigate-token") == "" {
+				c.String(http.StatusForbidden, "Shop mutations require a trusted authenticated session token")
+				return
+			}
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
 			if err := c.Request.ParseForm(); err != nil {
 				c.String(http.StatusBadRequest, "Could not read shop form: %v", err)
