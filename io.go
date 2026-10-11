@@ -53,8 +53,8 @@ func LoadConfig(file string) *Config {
 
 func validateConfig(config *Config) error {
 	base, err := url.Parse(config.BaseUrl)
-	if err != nil || base.Hostname() == "" || (base.Scheme != "http" && base.Scheme != "https") || !strings.HasSuffix(base.Path, "/") {
-		return fmt.Errorf("BaseUrl must be an absolute HTTP or HTTPS URL ending in /; received %q", config.BaseUrl)
+	if err != nil || base.Hostname() == "" || (base.Scheme != "http" && base.Scheme != "https") || !strings.HasSuffix(base.Path, "/") || base.RawQuery != "" || base.Fragment != "" || base.User != nil {
+		return fmt.Errorf("BaseUrl must be an absolute HTTP or HTTPS URL ending in / without credentials, query, or fragment; received %q", config.BaseUrl)
 	}
 	if config.Port < 1 || config.Port > 65535 {
 		return fmt.Errorf("Port must be between 1 and 65535; received %d", config.Port)
