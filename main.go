@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -37,12 +36,7 @@ type userData_t struct {
 	UserName   string
 }
 
-var upGrader = websocket.Upgrader{
-
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
+var upGrader = websocket.Upgrader{CheckOrigin: sameWebsocketOrigin}
 
 var gocial = gocialite.NewDispatcher()
 
@@ -65,7 +59,7 @@ func check(e error) {
 
 // Create a log message in combined log format
 func format_clf(c *gin.Context, id, responseCode, responseSize string) string {
-	return fmt.Sprintf("%v - %v [%v] \"%v %v %v\" %v %v \"%v\" \"%v\"", c.ClientIP(), id, time.Now(), c.Request.Method, c.Request.RequestURI, c.Request.Proto, responseCode, responseSize, c.Request.Referer(), c.Request.UserAgent())
+	return fmt.Sprintf("%v - %v [%v] \"%v %v %v\" %v %v \"-\" \"%v\"", c.RemoteIP(), id, time.Now(), c.Request.Method, c.FullPath(), c.Request.Proto, responseCode, responseSize, c.Request.UserAgent())
 	//	127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"
 }
 
@@ -136,6 +130,8 @@ type Config struct {
 	Bans      []string
 	LogFile   string
 	Secure    bool
+	MaxBodyBytes int64
+	UpstreamTimeoutSeconds int
 }
 
 var config *Config
@@ -151,9 +147,10 @@ func main() {
 	}
 	var err error
 	var f *os.File
-	f, err = os.Create("accessLog")
+	f, err = os.OpenFile(config.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	check(err)
-	accessLog = bufio.NewWriterSize(f, 999999) //Golang!
+	defer f.Close()
+	accessLog = f
 	flag.BoolVar(&develop, "develop", false, "Allow log in with no password")
 	flag.StringVar(&baseUrl, "base-url", baseUrl, "The top level url for the authenticated section of your site")
 	flag.Parse()
@@ -342,7 +339,7 @@ func displayLoginSuccessfulPage(c *gin.Context, id string, sessionToken string) 
 
 func setupNewUser(c *gin.Context, foreignID string, token string) string {
 
-	u1, _ := uuid.NewV4()
+	u1 := uuid.NewV4()
 	fmt.Printf("new user UUIDv4: %s\n", u1)
 	user := userData_t{}
 	user.Id = u1.String()
@@ -382,130 +379,12 @@ func displayPage(c *gin.Context, token, filename string, cookies map[string]stri
 
 // Redirect to default microservice, using PUT
 func relayPutHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
-
-	api := c.Param("api")
-	log.Printf("PUT api : %v with id %v\n", api, id)
-	bodyData, _ := ioutil.ReadAll(c.Request.Body)
-	client := &http.Client{}
-	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
-	params := ""
-	if len(uribits) > 1 {
-		params = "?" + uribits[1]
-	}
-
-	req, err := http.NewRequest("PUT", relay.To+api+params, nil)
-
-	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
-	req.Header.Add("X-Forwarded-For", forwarded_for)
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
-	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
-	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
-	req.Header.Add("X-Forwarded-Host", c.Request.Host)
-
-	//Copy the bare minimum needed for a post request
-	//FIXME:  Move this into config file, allow configuration per-endpoint
-	CopyHeaders := []string{"Content-Type", "Content-Length", "Content-Disposition"}
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
-	}
-
-	CopyHeaders = relay.CopyHeaders
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
-	}
-
-	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
-
-	log.Printf("PUT %v\n", req.URL)
-
-	//Do it
-	resp, err := client.Do(req)
-	check(err)
-	respData, err := ioutil.ReadAll(resp.Body)
-	check(err)
-
-	//Copy back the bare minimum needed
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Header("Content-Length", resp.Header.Get("Content-Length"))
-	c.Status(resp.StatusCode)
-	//Write the result
-	c.Writer.Write(respData)
-	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	relayHTTPHandler(c, id, token, relay, useCookie)
 }
 
 // Redirect to default microservice, using POST
 func relayPostHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
-
-	api := c.Param("api")
-	log.Printf("POST api : %v with id %v\n", api, id)
-	fmt.Printf("POST api : %v with id %v\n", api, id)
-	bodyData, err := ioutil.ReadAll(c.Request.Body)
-	if err != nil {
-		panic(err)
-	}
-	client := &http.Client{}
-	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
-	params := ""
-	if len(uribits) > 1 {
-		params = "?" + uribits[1]
-	}
-
-	req, err := http.NewRequest("POST", relay.To+api+params, nil)
-
-	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-
-
-	CopyHeaders := relay.CopyHeaders
-	log.Printf("Forwarding headers %v\n", CopyHeaders)
-	log.Printf("Request %+v\n", c)
-	log.Printf("Request body %v\n", string(bodyData))
-	for k, _ := range c.Request.Header {
-		req.Header.Add(k, c.Request.Header.Get(k))
-		log.Printf("Copyheader: %v, %v\n", k, c.Request.Header.Get(k))
-	}
-
-	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
-	req.Header.Add("X-Forwarded-For", forwarded_for)
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
-	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
-	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
-	req.Header.Add("X-Forwarded-Host", c.Request.Host)
-
-	log.Printf("Sending Request %+v\n", req)
-	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
-
-	log.Printf("POST %v\n", req.URL)
-
-	//Do it
-	resp, err := client.Do(req)
-	var respData []byte
-	if resp != nil {
-		if resp.Body != nil {
-			respData, err = ioutil.ReadAll(resp.Body)
-			check(err)
-		}
-
-		for k, h := range resp.Header {
-			c.Header(k, h[0])
-		}
-
-		//Write the result
-		c.Writer.Write(respData)
-		log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
-		accessLog.Write([]byte(format_clf(
-			c,
-			id,
-			fmt.Sprintf("%v", resp.StatusCode),
-			fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
-	} else {
-		log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
-		log.Printf("redirect failed %+V\n", resp)
-
-	}
+	relayHTTPHandler(c, id, token, relay, useCookie)
 }
 
 // Not very functional, but it will do for now
@@ -513,63 +392,17 @@ func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redir
 	microserviceBaseUrl := fmt.Sprintf("%vc/%v/", baseUrl, relay.Name)
 	microserviceTokenUrl := fmt.Sprintf("%v%v/%v/", baseUrl, token, relay.Name)
 	siteTopUrl := fmt.Sprintf("%v%v/", baseUrl, token)
-	req.Header.Add("authentigate-id", id)
-	req.Header.Add("authentigate-token", token)
+	req.Header.Set("authentigate-id", id)
+	req.Header.Set("authentigate-token", token)
 	//req.Header.Add("X-Auth-Token", token)
-	req.Header.Add("authentigate-base-url", microserviceBaseUrl)
-	req.Header.Add("authentigate-base-token-url", microserviceTokenUrl)
-	req.Header.Add("authentigate-top-url", siteTopUrl)
+	req.Header.Set("authentigate-base-url", microserviceBaseUrl)
+	req.Header.Set("authentigate-base-token-url", microserviceTokenUrl)
+	req.Header.Set("authentigate-top-url", siteTopUrl)
 }
 
 // Redirect to default microservice, using GET
 func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
-
-	api := c.Param("api")
-
-	client := &http.Client{}
-
-	//Pass params through untouched (security implications?)
-	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
-	params := ""
-	if len(uribits) > 1 {
-		params = "?" + uribits[1]
-	}
-
-	//TODO make this configurable from a file
-	req, err := http.NewRequest("GET", relay.To+api+params, nil)
-
-	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-
-	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
-	req.Header.Add("X-Forwarded-For", forwarded_for)
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
-	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
-	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
-	req.Header.Add("X-Forwarded-Host", c.Request.Host)
-	CopyHeaders := relay.CopyHeaders
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
-	}
-
-	upgradeH := c.Request.Header.Get("upgrade")
-	if upgradeH == "websocket" {
-		log.Printf("upgrade GET api %v, %v, %v\n", id, api, req.URL)
-		upgradeAndHandle(c, req)
-		return
-	}
-
-	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
-	resp, err := client.Do(req)
-	check(err)
-	respData, err := ioutil.ReadAll(resp.Body)
-
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Header("Content-Disposition", resp.Header.Get("Content-Disposition"))
-	c.Status(resp.StatusCode)
-	c.Writer.Write(respData)
-	logMess := []byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n")
-	accessLog.Write(logMess)
+	relayHTTPHandler(c, id, token, relay, useCookie)
 }
 
 // Redirect to correct oAuth URL
