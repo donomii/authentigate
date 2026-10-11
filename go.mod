@@ -1,6 +1,6 @@
 module github.com/donomii/authentigate
 
-go 1.26.2
+go 1.26.0
 
 require (
 	github.com/danilopolani/gocialite v1.0.2
@@ -13,11 +13,11 @@ require (
 	github.com/philippgille/gokv/encoding v0.7.0
 	github.com/philippgille/gokv/file v0.7.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/satori/go.uuid v1.2.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/xlzd/gotp v0.1.0
 	github.com/zsais/go-gin-prometheus v1.0.3
 	go.etcd.io/bbolt v1.5.0
+	golang.org/x/oauth2 v0.37.0
 )
 
 require (
@@ -57,7 +57,6 @@ require (
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
-	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect

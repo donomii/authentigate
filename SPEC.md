@@ -21,7 +21,7 @@ The root application reads `config.json` from its working directory. Invalid JSO
 | `Tipe` | HTTP method handled by the route: `GET`, `POST`, or `PUT`. Configure separate entries for each supported method. |
 | `CopyHeaders` | JSON array of additional request headers to forward. Identity and forwarding headers always come from the gateway. |
 | `Port` | Loopback HTTP listening port when automatic HTTPS is disabled; an integer from 1 through 65535. |
-| `BaseUrl` | Absolute public authenticated URL prefix ending in `/`, normally `https://example.com/secure/`. |
+| `BaseUrl` | Absolute public authenticated URL prefix ending in `/`, normally `https://example.com/secure/`. Credentials, query parameters, and fragments are not accepted. |
 | `HostNames` | Hostnames for automatic HTTPS certificates. At least one is required when `Secure` is true. |
 | `Bans` | Substrings rejected in authenticated request URLs with status 403. |
 | `LogFile` | Access log path; defaults to `accessLog`. Existing log contents are preserved. |
@@ -35,23 +35,23 @@ The root application reads `config.json` from its working directory. Invalid JSO
 
 An internal user ID is a UUID string, except for the reserved development ID `1`. A session token is an opaque bearer credential. Newly generated tokens contain 32 bytes of cryptographically generated randomness encoded for use in URLs. A token identifies exactly one user and must equal that user's current saved token. Development identities cannot authenticate outside development mode.
 
-User records contain the internal ID, provider identities, current token, authenticator secret, optional username, and authenticator replay state. Provider identities retain the existing provider-name plus provider-user-ID representation. Usernames map to internal IDs. Session mappings store internal IDs as JSON strings, not encoded byte arrays.
+User records contain the internal ID, provider identities, current token, authenticator secret, optional username, and authenticator attempt and replay state. `OTPWindowStart` is the attempt window's Unix start time, `OTPFailures` counts rejected codes within it, and `OTPLastStep` records the last accepted 30-second time step. Provider identities retain the existing provider-name plus provider-user-ID representation. Usernames map to internal IDs. Session mappings store internal IDs as JSON strings, not encoded byte arrays.
 
 The file stores live under the configured database filename prefix, which defaults to `authentigate_`. The `users`, `foreignIDs`, `sessionTokens`, and `userNames` stores contain JSON files keyed by their respective IDs. Persistence failures are errors rather than successful account updates. Account mutations are serialized within one gateway process.
 
-An authenticated request may carry `AuthentigateSessionToken` as a cookie or a session token in the route. A present cookie takes precedence. New cookies are HTTP-only, use SameSite=Lax, and are secure on HTTPS installations. Account and login pages are not cacheable. Session credentials and authenticator secrets are excluded from application diagnostic output.
+An authenticated request may carry a session cookie or a session token in the route. A present cookie takes precedence. HTTPS installations use `__Host-AuthentigateSessionToken` and `__Host-AuthentigateOAuthState` cookies with path `/`, no domain attribute, and the Secure flag. HTTP development uses the corresponding names without `__Host-`. All authentication cookies are HTTP-only and use SameSite=Lax. HTTPS installations no longer accept the older unprefixed session cookie, so existing browser sessions must log in again; existing token URLs remain supported. Account and login pages are not cacheable. Session credentials and authenticator secrets are excluded from application diagnostic output.
 
 Rotating a token creates a new credential, saves it as the current credential, removes the previous mapping, and updates the browser cookie. The authenticator secret survives rotation. An old token is invalid even if a stale mapping remains on disk.
 
 ## Login and account pages
 
-The home page offers configured OAuth providers, authenticator login, and the development login when enabled. OAuth callbacks must match the browser's login cookie, provider, and unexpired signed state before an authorization code is exchanged. Provider errors and empty provider identities do not create accounts.
+The home page offers configured OAuth providers, authenticator login, and the development login when enabled. OAuth callbacks must match the browser's login cookie, provider, and signed state before an authorization code is exchanged. State expires after ten minutes and is portable across gateway instances with the same provider configuration. The callback clears its browser cookie; the provider enforces single-use authorization codes. Provider errors and empty provider identities do not create accounts.
 
-`GET /totplogin` displays the username and authenticator-code form without requiring a session. `POST /totplogin` verifies the submitted account and time-based code before setting the session cookie and displaying the success page. Failed and repeated attempts are bounded; an accepted time-step code cannot be reused.
+`GET /totplogin` displays the username and authenticator-code form without requiring a session. `POST /totplogin` checks the request origin and verifies the submitted account and time-based code before setting the session cookie and displaying the success page. Five rejected codes block further attempts for that account until its five-minute window expires. Each network peer address also has a limit of twenty attempts per five minutes, including unknown accounts; clients behind one reverse proxy share that peer-address limit. Account limits and the last accepted time step persist across restarts. An accepted time-step code cannot be reused.
 
 `GET /manage/:token/token` displays the current credential, account form, and authenticator QR image. The QR image is embedded in the authenticated page; there is no public QR-file endpoint. `GET /manage/:token/updateUser` and `GET /manage/:token/newToken` display account controls without changing data. Their POST forms require the matching session's hidden security value before changing the username or rotating the token. Values inserted into account HTML are escaped.
 
-Successful login displays a link to the configured menu. The shipped success page also navigates there after five seconds. A missing or invalid session displays the login page instead of forwarding a request.
+Successful login displays a link to the configured menu. The shipped success page also navigates there after five seconds. A missing or invalid session returns status 401 with the login page instead of forwarding a request.
 
 ## HTTP and WebSocket relay
 
