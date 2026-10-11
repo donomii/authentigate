@@ -3,28 +3,40 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 )
-
 
 func SaveConfig(config *Config) {
 	payload, err := json.MarshalIndent(config, "", "	")
 	if err != nil {
-		panic("Could not marshall config")
+		panic(fmt.Errorf("encode configuration for config.json: %w", err))
 	}
-	os.WriteFile(fmt.Sprintf("config.json"), payload, 0600)
+	if err := os.WriteFile("config.json", payload, 0600); err != nil {
+		panic(fmt.Errorf("write configuration config.json: %w", err))
+	}
 }
 
-//Load user data
+// Load user data
 func LoadConfig(file string) *Config {
-	var config Config
+	config := Config{LogFile: "accessLog"}
 	raw, err := os.ReadFile(file)
 	if err != nil {
-		log.Printf("Unable to read from file %a: %v", file, err)
-		panic(fmt.Sprintf("Unable to read from file %a: %v", file, err))
+		panic(fmt.Errorf("read configuration %q: %w", file, err))
 	}
 
-	json.Unmarshal(raw, &config)
+	if err := json.Unmarshal(raw, &config); err != nil {
+		panic(fmt.Errorf("decode configuration %q: %w", file, err))
+	}
+	if len(config.Redirects) == 0 {
+		panic(fmt.Errorf("configuration %q must include at least one redirect", file))
+	}
+	for index, redirect := range config.Redirects {
+		if requestHostname(redirect.Host) == "" {
+			panic(fmt.Errorf("configuration %q redirect %d must include a nonempty Host", file, index))
+		}
+		if _, err := parseTarget(redirect.To); err != nil {
+			panic(fmt.Errorf("configuration %q redirect %d: %w", file, index, err))
+		}
+	}
 	return &config
 }
