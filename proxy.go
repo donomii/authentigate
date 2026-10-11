@@ -45,6 +45,14 @@ func readRelayBody(body io.Reader) ([]byte, error) {
 	return data, nil
 }
 
+func upstreamErrorCause(err error) error {
+	var requestError *url.Error
+	if errors.As(err, &requestError) {
+		return requestError.Err
+	}
+	return err
+}
+
 func relayURL(c *gin.Context, relay *Redirect) (*url.URL, error) {
 	target, err := url.Parse(relay.To)
 	if err != nil {
@@ -180,7 +188,7 @@ func relayHTTPHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 			status = http.StatusGatewayTimeout
 		}
 		logUpstreamFailure(relay.Name, req.URL.Host, err)
-		c.String(status, "Request to upstream %s failed", relay.Name)
+		c.String(status, "Request to upstream %s (%s) failed: %v", relay.Name, req.URL.Host, upstreamErrorCause(err))
 		return
 	}
 	defer resp.Body.Close()

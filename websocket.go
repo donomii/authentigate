@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -30,11 +31,14 @@ func upgradeAndHandle(c *gin.Context, req *http.Request) {
 	}
 	socket, response, err := dialer.DialContext(c.Request.Context(), target.String(), headers)
 	if err != nil {
-		if response != nil && response.Body != nil {
-			response.Body.Close()
+		if response != nil {
+			if response.Body != nil {
+				response.Body.Close()
+			}
+			err = fmt.Errorf("handshake returned %s: %w", response.Status, err)
 		}
 		logWebsocketFailure(req.URL.Host, err)
-		c.String(http.StatusBadGateway, "WebSocket connection to upstream %s failed", req.URL.Host)
+		c.String(http.StatusBadGateway, "WebSocket connection to upstream %s failed: %v", req.URL.Host, upstreamErrorCause(err))
 		return
 	}
 	defer socket.Close()
