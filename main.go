@@ -1,23 +1,18 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
-	"runtime/debug"
 	"strings"
 	"time"
 
-	"github.com/danilopolani/gocialite"
 	"github.com/donomii/gin"
 	"github.com/gin-gonic/autotls"
-	uuid "github.com/satori/go.uuid"
 
 	"github.com/gorilla/websocket"
 
@@ -33,11 +28,12 @@ type userData_t struct {
 	QRcode     []byte
 	OtpSecret  string
 	UserName   string
+	OTPWindowStart int64
+	OTPFailures int
+	OTPLastStep int64
 }
 
 var upGrader = websocket.Upgrader{CheckOrigin: sameWebsocketOrigin}
-
-var gocial = gocialite.NewDispatcher()
 
 // The url of the top of the authenticated part of your website
 var baseUrl string = "https://entirety.praeceptamachinae.com/secure/"
@@ -45,7 +41,6 @@ var develop = false
 var accessLog io.Writer
 var db_prefix string = "authentigate_"
 var providerSecrets map[string]map[string]string
-var r *rand.Rand
 
 
 
@@ -75,9 +70,7 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, b
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("Failure while processing %v: %v", c.Request.URL, r)
-				log.Printf("Failure while processing %v: %v", c.Request.URL, r)
-				debug.PrintStack()
+				logAuthFailure(c, fmt.Sprint(r))
 				c.Status(500)
 				displayPage(c, "", "files/BackendFailure.html", nil, nil)
 			}
@@ -92,22 +85,20 @@ func makeAuthedRelay(handlerFunc func(*gin.Context, string, string, *Redirect, b
 			}
 		}
 
-		token, err := c.Cookie("AuthentigateSessionToken")
+		token, err := c.Cookie(authCookieName(c, "AuthentigateSessionToken"))
 		useCookie := true
-		if err == nil {
-			log.Println("Found authentigate cookie: ", token)
-		} else {
-			log.Println("Cookie not found, using token")
-			log.Println(err)
+		if err != nil {
 			token = c.Param("token")
 			useCookie = false
 		}
 		id := sessionTokenToId(token)
-		log.Printf("session: %v id: %v\n", token, id)
 		if id == "" {
-			log.Printf("Login failure for token: '%v'", token)
+			c.Status(http.StatusUnauthorized)
 			frontPageHandler(c)
 		} else {
+			if useCookie && !validCookieOrigin(c) {
+				return
+			}
 			//if useCookie {
 			//token = "c"
 			//}
@@ -153,6 +144,7 @@ func main() {
 	flag.BoolVar(&develop, "develop", false, "Allow log in with no password")
 	flag.StringVar(&baseUrl, "base-url", baseUrl, "The top level url for the authenticated section of your site")
 	flag.Parse()
+	check(loadProviderSecrets("provider_secrets.json"))
 
 	var shutdownFunc func()
 	b, err, shutdownFunc = newAuthDB(db_prefix)
@@ -163,8 +155,8 @@ func main() {
 		baseUrl = "http://localhost:8000/secure/"
 	}
 
-	r = rand.New(rand.NewSource(time.Now().UnixNano()))
-	router := gin.Default()
+	router := gin.New()
+	router.Use(authRecovery)
 
 	router.GET("/", frontPageHandler)
 	//User management pages
@@ -172,8 +164,9 @@ func main() {
 	router.GET("/manage/:token/updateUser", makeAuthedRelay(updateUserHandler, nil, config.Bans))
 	router.POST("/manage/:token/updateUser", makeAuthedRelay(updateUserHandler, nil, config.Bans))
 	router.GET("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, nil, config.Bans))
-	router.GET("/totplogin", makeAuthedRelay(totploginHandler, nil, config.Bans))
-	router.POST("/totplogin", makeAuthedRelay(totploginHandler, nil, config.Bans))
+	router.POST("/manage/:token/newToken", makeAuthedRelay(newTokenHandler, nil, config.Bans))
+	router.GET("/totplogin", totploginHandler)
+	router.POST("/totplogin", totploginHandler)
 
 	for _, loopPtr := range config.Redirects {
 		relay := loopPtr
@@ -196,7 +189,6 @@ func main() {
 
 	//Drop CSS and js libraries in here
 	router.Static("/files", "./files")
-	router.Static("/qrcodes", "./qrcodes")
 	router.Static("/favicon.ico", "./favicon.ico")
 	if develop {
 		router.GET("/develop/auth/callback", developCallbackHandler)
@@ -214,81 +206,84 @@ func main() {
 }
 
 func updateUserHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
-	user := LoadUser(id)
+	if c.Request.Method != http.MethodGet && !validManagementForm(c, token) {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	user := managementUser(c, id, token)
 	if user == nil {
-		panic("User not found for sessionid:" + token + "!")
-	}
-
-	r := c.Request
-	w := c.Writer
-	if err := r.ParseForm(); err != nil {
-		fmt.Fprintf(w, "ParseForm() err: %v", err)
 		return
 	}
-	username := r.FormValue("username")
+
+	if c.Request.Method == http.MethodGet {
+		displayUserPage(c, user, "")
+		return
+	}
+	username := c.Request.PostForm.Get("username")
 	if username == "" {
-		displayPage(c, "", "files/showToken.html", nil, map[string]string{"UPDATEUSERURL": "/manage/" + token + "/updateUser"})
+		c.Status(http.StatusBadRequest)
+		displayUserPage(c, user, "Username must not be empty")
 		return
 	}
-	//FIXME race condition here
-	userExists := b.Exists("userNames", username)
-	if userExists {
-		displayPage(c, "", "files/showToken.html", nil, map[string]string{"UPDATEUSERURL": "/manage/" + token + "/updateUser", "ERROR": "Username already exists"})
+	var owner string
+	found, err := b.UserNames.Get(username, &owner)
+	check(err)
+	if found && owner != id {
+		c.Status(http.StatusConflict)
+		displayUserPage(c, user, "Username already exists")
 		return
 	}
-
+	oldUsername := user.UserName
 	user.UserName = username
-	if user.UserName != "" {
-		user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
-	}
+	user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
+	check(b.UserNames.Set(username, user.Id))
 	SaveUser(user)
-	png := user.QRcode
-	//Save the png to a temporary directory then server it
-	tmpDir := "qrcodes"
-	os.Mkdir(tmpDir, 0700)
-	fname := fmt.Sprintf("%v/%v.png", tmpDir, token)
-	ioutil.WriteFile(fname, png, 0600)
-	b.UserNames.Set(username, user.Id)
-	displayPage(c, token, "files/showToken.html", nil, map[string]string{"TOKEN": token, "QRCODE": "/" + fname, "UPDATEUSERURL": "/manage/" + token + "/updateUser", "USERNAME": username})
-	return
+	if oldUsername != "" && oldUsername != username {
+		if err := b.UserNames.Delete(oldUsername); err != nil {
+			logUsernameCleanupFailure(user.Id, oldUsername, err)
+		}
+	}
+	displayUserPage(c, user, "")
 }
 
-func totploginHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
-	r := c.Request
-	w := c.Writer
-	if err := r.ParseForm(); err != nil {
-		fmt.Fprintf(w, "ParseForm() err: %v", err)
-		return
-	}
-	username := r.FormValue("username")
-
-	if username == "" {
+func totploginHandler(c *gin.Context) {
+	if c.Request.Method == http.MethodGet {
 		displayPage(c, "", "files/totplogin.html", nil, nil)
 		return
 	}
-
-	code := r.FormValue("code")
-	var userId string
-	found, err := b.UserNames.Get(username, &userId)
-	if err != nil {
-		fmt.Fprintf(w, "Error: %v", err)
+	if !allowOTPLogin(c) {
 		return
 	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16384)
+	if err := c.Request.ParseForm(); err != nil {
+		c.String(http.StatusBadRequest, "Unable to read authenticator login form")
+		return
+	}
+	username := c.Request.PostForm.Get("username")
+	code := c.Request.PostForm.Get("code")
+	if username == "" || code == "" {
+		c.String(http.StatusBadRequest, "Username and authenticator code are required")
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var userId string
+	found, err := b.UserNames.Get(username, &userId)
+	check(err)
 	if !found {
-		fmt.Fprintf(w, "User not found")
+		c.String(http.StatusUnauthorized, "Invalid username or authenticator code")
 		return
 	}
 	user := LoadUser(userId)
-	if user == nil {
-		fmt.Fprintf(w, "User not found")
+	if user == nil || user.UserName != username || user.OtpSecret == "" || developmentUserDisabled(user) {
+		c.String(http.StatusUnauthorized, "Invalid username or authenticator code")
 		return
 	}
-	totp := gotp.NewDefaultTOTP(user.OtpSecret)
-	ok := totp.Verify(code, time.Now().Unix())
-	if !ok {
-		fmt.Fprintf(w, "Invalid code")
+	if !verifyUserOTP(c, user, code, time.Now().Unix()) {
 		return
 	}
+	check(b.SessionTokens.Set(user.Token, user.Id))
 	displayLoginSuccessfulPage(c, userId, user.Token)
 
 }
@@ -307,23 +302,13 @@ func frontPageHandler(c *gin.Context) {
 
 // Show the user their revocable token
 func tokenShowHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
-
-	user := LoadUser(id)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	user := managementUser(c, id, token)
 	if user == nil {
-		panic("User not found for sessionid:" + token + "!")
+		return
 	}
-
-	if user.UserName != "" {
-		user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
-		SaveUser(user)
-	}
-	png := user.QRcode
-	//Save the png to a temporary directory then server it
-	tmpDir := "qrcodes"
-	os.Mkdir(tmpDir, 0700)
-	fname := fmt.Sprintf("%v/%v.png", tmpDir, token)
-	ioutil.WriteFile(fname, png, 0600)
-	displayPage(c, token, "files/showToken.html", nil, map[string]string{"QRCODE": "/" + fname, "UPDATEUSERURL": "/manage/" + token + "/updateUser"})
+	displayUserPage(c, user, "")
 }
 
 // Show the user the successful login message
@@ -337,43 +322,49 @@ func displayLoginSuccessfulPage(c *gin.Context, id string, sessionToken string) 
 }
 
 func setupNewUser(c *gin.Context, foreignID string, token string) string {
-
-	u1 := uuid.NewV4()
-	fmt.Printf("new user UUIDv4: %s\n", u1)
 	user := userData_t{}
-	user.Id = u1.String()
+	user.Id = randomUserID()
+	if foreignID == "1" && develop {
+		user.Id = "1"
+	}
 	user.ForeignIDs = []string{foreignID}
 	SaveUser(&user)
-	user.Token = newToken(user.Id) //Newtoken also saves user data
-
-	b.ForeignIDs.Set(foreignID, user.Id)
-	b.SessionTokens.Set(user.Token, user.Id)
+	user.Token = newTokenLocked(user.Id) //Newtoken also saves user data
+	check(b.ForeignIDs.Set(foreignID, user.Id))
 
 	return user.Token
 }
 
 func newTokenHandler(c *gin.Context, id string, token string, relay *Redirect, useCookie bool) {
-	sessionToken := newToken(id)
-	displayPage(c, sessionToken, "files/showToken.html", nil, nil)
+	if c.Request.Method == http.MethodGet {
+		tokenShowHandler(c, id, token, relay, useCookie)
+		return
+	}
+	if !validManagementForm(c, token) {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if managementUser(c, id, token) == nil {
+		return
+	}
+	sessionToken := newTokenLocked(id)
+	setAuthCookie(c, "AuthentigateSessionToken", sessionToken, "/", 0)
+	displayUserPage(c, LoadUser(id), "")
 }
 
 // Display a html file, inserting the revocable session token as needed
 func displayPage(c *gin.Context, token, filename string, cookies map[string]string, subs map[string]string) {
-	templateb, _ := ioutil.ReadFile(filename)
-	template := string(templateb)
-	template = templateSet(template, "TOKEN", token)
-	template = templateSet(template, "BASE", baseUrl)
-	template = templateSet(template, "SECUREURL", makeSecureZoneUrl(token, ""))
-	for k, v := range subs {
-		template = templateSet(template, k, v)
+	templateb, err := ioutil.ReadFile(filename)
+	check(err)
+	for cookieName, cookieValue := range cookies {
+		setAuthCookie(c, cookieName, cookieValue, "/", 0)
 	}
-	if cookies != nil {
-		fmt.Printf("Setting cookies %v\n", cookies)
-		for cookieName, cookieValue := range cookies {
-			http.SetCookie(c.Writer, &http.Cookie{Name: cookieName, Value: cookieValue, Path: "/"})
-		}
-	}
-	c.Writer.Write([]byte(template))
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.Header("Cache-Control", "no-store")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Writer.Write([]byte(renderAuthPage(string(templateb), token, subs)))
 }
 
 // Redirect to default microservice, using PUT
@@ -408,46 +399,11 @@ func relayGetHandler(c *gin.Context, id, token string, relay *Redirect, useCooki
 func redirectHandler(c *gin.Context) {
 	// Retrieve provider from route
 	provider := c.Param("provider")
-
 	// In this case we use a map to store our secrets
-	if providerSecrets == nil {
-		providerSecrets = map[string]map[string]string{}
-		configData, err := ioutil.ReadFile("provider_secrets.json")
-		if err != nil {
-			panic(fmt.Sprintf("Could not read provider secrets from file provider_secrets.json: %v", err))
-		}
-
-		err = json.Unmarshal(configData, &providerSecrets)
-		if err != nil {
-			panic(fmt.Sprintf("Failed to parse provider secrets file provider_secrets.json: %v", err))
-		}
-	}
-
-	providerScopes := map[string][]string{
-		"github":    []string{"public_repo"},
-		"linkedin":  []string{},
-		"facebook":  []string{},
-		"google":    []string{},
-		"bitbucket": []string{},
-		"amazon":    []string{},
-		"slack":     []string{},
-	}
-
-	providerData := providerSecrets[provider]
-	actualScopes := providerScopes[provider]
-
-	authURL, err := gocial.New().
-		Driver(provider).
-		Scopes(actualScopes).
-		Redirect(
-			providerData["clientID"],
-			providerData["clientSecret"],
-			providerData["redirectURL"],
-		)
-
+	authURL, err := beginOAuth(c, provider)
 	// Check for errors (usually driver not valid)
 	if err != nil {
-		c.Writer.Write([]byte("Error: " + err.Error()))
+		c.String(http.StatusBadRequest, "Unable to start OAuth login: %s", err)
 		return
 	}
 
@@ -485,10 +441,7 @@ func generateTOTPWithSecret(secret, username string) []byte {
 		panic("Username must be set")
 	}
 	totp := gotp.NewDefaultTOTP(secret)
-	fmt.Println("current one-time password is:", totp.Now())
-
 	uri := totp.ProvisioningUri(username, "Authentigate")
-	fmt.Println(uri)
 	q, err := qrcode.New(uri, qrcode.High)
 	if err != nil {
 		panic(err)
@@ -506,23 +459,29 @@ func generateTOTPWithSecret(secret, username string) []byte {
 //Generate a new revocable token
 
 func newToken(id string) string {
-	sessionToken := fmt.Sprintf("%v", r.Int())
-	log.Printf("Setting id:token %v:%v\n", id, sessionToken)
-	b.Put("sessionTokens", sessionToken, []byte(id))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return newTokenLocked(id)
+}
 
+func newTokenLocked(id string) string {
 	user := LoadUser(id)
-
 	if user == nil {
-		panic("User not found")
+		panic("Cannot rotate token: user not found for id " + id)
 	}
-
+	sessionToken := randomSessionToken()
+	oldToken := user.Token
 	user.Token = sessionToken
-
-	user.OtpSecret = gotp.RandomSecret(16)
-	if user.UserName != "" {
-		user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
+	if user.OtpSecret == "" {
+		user.OtpSecret = randomOTPSecret()
 	}
+	check(b.SessionTokens.Set(sessionToken, id))
 	SaveUser(user)
+	if oldToken != "" {
+		if err := b.SessionTokens.Delete(oldToken); err != nil {
+			logTokenCleanupFailure(id, oldToken, err)
+		}
+	}
 	return sessionToken
 }
 
@@ -532,18 +491,24 @@ func callbackHandler(c *gin.Context) {
 	state := c.Query("state")
 	code := c.Query("code")
 	provider := c.Param("provider")
-
 	// Handle callback and check for errors
-	foreignUser, _, err := gocial.Handle(state, code)
+	flow, libraryState, err := consumeOAuth(c, provider, state)
 	if err != nil {
-		c.Writer.Write([]byte("Error: " + err.Error()))
+		c.String(http.StatusBadRequest, "OAuth login rejected: %s", err)
 		return
 	}
-
-	log.Printf("User: %#v\n\n", foreignUser)
-	log.Printf("User ID: %#v\n\n", foreignUser.ID)
-
-	foreignID := provider + foreignUser.ID
+	if err := flow.Handle(libraryState, code); err != nil {
+		logAuthFailure(c, fmt.Sprintf("OAuth provider %s failed: %v", provider, err))
+		c.String(http.StatusBadGateway, "OAuth provider %s could not complete login: %s", provider, authErrorDetail(c, err.Error()))
+		return
+	}
+	if flow.User.ID == "" {
+		c.String(http.StatusBadGateway, "OAuth provider %s returned no account ID", provider)
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	foreignID := provider + flow.User.ID
 	id := foreignIdToId(foreignID)
 	var token string
 	if id == "" {
@@ -551,7 +516,12 @@ func callbackHandler(c *gin.Context) {
 		token = setupNewUser(c, foreignID, "")
 	} else {
 		user := LoadUser(id)
+		if user == nil || developmentUserDisabled(user) {
+			c.String(http.StatusInternalServerError, "OAuth account has no valid local user")
+			return
+		}
 		token = user.Token
+		check(b.SessionTokens.Set(token, id))
 	}
 
 	displayLoginSuccessfulPage(c, id, token)
@@ -561,16 +531,15 @@ func callbackHandler(c *gin.Context) {
 // Handle callback of providers - google, facebook etc
 func developCallbackHandler(c *gin.Context) {
 	if develop {
-
+		b.mu.Lock()
+		defer b.mu.Unlock()
 		id := "1"
 		var token string
 		if !b.Exists("users", id) {
-			fmt.Printf("Creating new user with id 1\n")
 			token = setupNewUser(c, id, "")
 		} else {
 
 			token = idToSessionToken(id)
-			fmt.Printf("Found user with id 1, token %v\n", token)
 		}
 		if token == "" {
 			token = setupNewUser(c, id, "")
@@ -578,7 +547,7 @@ func developCallbackHandler(c *gin.Context) {
 
 		displayLoginSuccessfulPage(c, id, token)
 	} else {
-		panic("Not allowed!")
+		c.String(http.StatusForbidden, "Development login is disabled")
 	}
 }
 

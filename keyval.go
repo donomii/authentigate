@@ -1,12 +1,16 @@
 package main
 
 import (
+	"encoding/json"
+	"sync"
+
 	"github.com/philippgille/gokv"
 	"github.com/philippgille/gokv/encoding"
 	"github.com/philippgille/gokv/file"
 )
 
 type authDB struct {
+	mu sync.Mutex
 	Users, ForeignIDs, SessionTokens, UserNames gokv.Store
 	ByNames                                     map[string]gokv.Store
 }
@@ -41,17 +45,17 @@ func newAuthDB(filename string) (s *authDB, err error, shutdownFunc func()) {
 	*/
 
 	ext := "json"
-	s.Users, err = file.NewStore(file.Options{Directory: db_prefix + "users", FilenameExtension: &ext, Codec: encoding.JSON})
+	s.Users, err = file.NewStore(file.Options{Directory: filename + "users", FilenameExtension: &ext, Codec: encoding.JSON})
 	s.ByNames["users"] = s.Users
 
 	check(err)
-	s.ForeignIDs, err = file.NewStore(file.Options{Directory: db_prefix + "foreignIDs", FilenameExtension: &ext, Codec: encoding.JSON})
+	s.ForeignIDs, err = file.NewStore(file.Options{Directory: filename + "foreignIDs", FilenameExtension: &ext, Codec: encoding.JSON})
 	s.ByNames["foreignIDs"] = s.ForeignIDs
 	check(err)
-	s.SessionTokens, err = file.NewStore(file.Options{Directory: db_prefix + "sessionTokens", FilenameExtension: &ext, Codec: encoding.JSON})
+	s.SessionTokens, err = file.NewStore(file.Options{Directory: filename + "sessionTokens", FilenameExtension: &ext, Codec: encoding.JSON})
 	s.ByNames["sessionTokens"] = s.SessionTokens
 	check(err)
-	s.UserNames, err = file.NewStore(file.Options{Directory: db_prefix + "userNames", FilenameExtension: &ext, Codec: encoding.JSON})
+	s.UserNames, err = file.NewStore(file.Options{Directory: filename + "userNames", FilenameExtension: &ext, Codec: encoding.JSON})
 	s.ByNames["userNames"] = s.UserNames
 	check(err)
 
@@ -79,6 +83,7 @@ func newAuthDB(filename string) (s *authDB, err error, shutdownFunc func()) {
 		defer s.ForeignIDs.Close()
 
 		defer s.SessionTokens.Close()
+		defer s.UserNames.Close()
 	}
 	return s, err, shutdownFunc
 }
@@ -87,7 +92,7 @@ func newAuthDB(filename string) (s *authDB, err error, shutdownFunc func()) {
 //
 // To switch to another keyval store, e.g. AWS, we just replace the API calls here
 func (s *authDB) Exists(bucket, key string) bool {
-	var data []byte
+	var data json.RawMessage
 	found, err := s.ByNames[bucket].Get(key, &data)
 	check(err)
 	return found
