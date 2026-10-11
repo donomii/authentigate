@@ -68,8 +68,13 @@ func relayURL(c *gin.Context, relay *Redirect) (*url.URL, error) {
 				encodedPrefixLength++
 			}
 		}
-		target.RawPath = strings.TrimSuffix(target.EscapedPath(), "/") + escapedPath[encodedPrefixLength:]
-		target.Path = strings.TrimSuffix(target.Path, "/") + api
+		basePath, baseEscapedPath := target.Path, target.EscapedPath()
+		if strings.HasSuffix(baseEscapedPath, "/") {
+			basePath = strings.TrimSuffix(basePath, "/")
+			baseEscapedPath = strings.TrimSuffix(baseEscapedPath, "/")
+		}
+		target.RawPath = baseEscapedPath + escapedPath[encodedPrefixLength:]
+		target.Path = basePath + api
 	}
 	if c.Request.URL.RawQuery != "" {
 		if target.RawQuery != "" {
