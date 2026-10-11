@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,13 +20,24 @@ import (
 func createCoupon(c *gin.Context, id string, token string) {
 	duration_s := c.Query("duration")
 	discount, err := strconv.ParseFloat(c.Query("discount"), 64)
+	if err != nil || math.IsNaN(discount) || math.IsInf(discount, 0) || discount < 0 || discount > 1 {
+		NewError(c, http.StatusBadRequest, "Discount must be a number between 0 and 1")
+		return
+	}
 	target := c.Query("target")
 	if target == "" {
 		target = "orange"
 	}
 	duration, err := strconv.Atoi(duration_s)
-	if duration_s == "" || err != nil {
+	if duration_s == "" {
 		duration = 10
+	} else if err != nil || duration <= 0 || int64(duration) > math.MaxInt64/int64(time.Second) {
+		NewError(c, http.StatusBadRequest, "Duration must be a positive number of seconds within the supported range")
+		return
+	}
+	if _, exists := LoadStore().Prices[target]; !exists {
+		NewError(c, http.StatusBadRequest, "Unknown coupon target: "+target)
+		return
 	}
 	details := doAddCoupon(duration, discount, target)
 
@@ -40,19 +53,7 @@ func createCoupon(c *gin.Context, id string, token string) {
 // A coupon
 // swagger:response Coupon
 func updateCoupon(c *gin.Context, id string, token string) {
-	duration_s := c.Query("duration")
-	discount, err := strconv.ParseFloat(c.Query("discount"), 64)
-	target := c.Query("target")
-	if target == "" {
-		target = "orange"
-	}
-	duration, err := strconv.Atoi(duration_s)
-	if duration_s == "" || err != nil {
-		duration = 10
-	}
-	details := doAddCoupon(duration, discount, target)
-
-	c.JSON(http.StatusOK, details)
+	createCoupon(c, id, token)
 }
 
 // swagger:route GET /shoppr/api/v1/listCoupons coupon listCoupons
@@ -85,7 +86,9 @@ func listItems(c *gin.Context, id string, token string) {
 // swagger:response
 func deleteCoupon(c *gin.Context, id string, token string) {
 	coupon, _ := c.GetQuery("coupon")
-	delete(LoadStore().Coupons, coupon)
+	store := LoadStore()
+	delete(store.Coupons, coupon)
+	SaveStore(store)
 }
 
 // swagger:route GET /shoppr/api/v1/addItem basket addItem
@@ -99,11 +102,20 @@ func addItem(c *gin.Context, id string, token string) {
 	item := c.Query("item")
 	amountText := c.Query("amount")
 	amount, err := strconv.Atoi(amountText)
-	if err != nil {
-		panic(err)
+	if err != nil || amount <= 0 {
+		NewError(c, http.StatusBadRequest, "Item amount must be a positive integer: "+amountText)
+		return
+	}
+	if _, exists := LoadStore().Prices[item]; !exists {
+		NewError(c, http.StatusBadRequest, "Unknown item: "+item)
+		return
 	}
 	user := LoadUser(id)
 	basket := user.Basket
+	if amount > int(^uint(0)>>1)-basket[item] {
+		NewError(c, http.StatusBadRequest, "Item amount exceeds the supported basket quantity for "+item)
+		return
+	}
 	basket[item] = basket[item] + amount
 	SaveUser(id, user)
 }
@@ -172,6 +184,9 @@ func purchase(c *gin.Context, id string, token string) {
 	order := calculateOrder(basket, coupon, user)
 	//Valid payment here
 	checkPayment(ccname, ccnumber, ccexpiry)
+	if details, exists := LoadStore().Coupons[coupon]; exists && details.Expiry.After(time.Now()) && basket[details.Target] > 0 {
+		user.UsedCoupons[coupon] = 1
+	}
 	user.Orders = append(user.Orders, order)
 	user.Basket = map[string]int{}
 	SaveUser(id, user)

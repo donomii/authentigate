@@ -1,13 +1,15 @@
 package main
 
 import (
-	"strings"
+	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,9 +75,11 @@ func render_users(Users UserMap) string {
 		levelr := goof.Clamp(int(diff.Seconds())*4, 0, 255)
 		iplinks := []string{}
 		for _, ip := range v.LocalIPaddresses {
-			iplinks = append(iplinks, fmt.Sprintf("<a href=\"http://%v\">%v</a>", ip,ip))
+			ip = html.EscapeString(ip)
+			iplinks = append(iplinks, fmt.Sprintf("<a href=\"http://%v\">%v</a>", ip, ip))
 		}
-		userHtml = userHtml + fmt.Sprintf("<div><span class='box' style='background-color: #%02x%02x%02x;'>U</span>user %v: %v seconds(<a href=\"http://%v\">%v</a>,%v)</div>", levelr, levelg, 1, k, int(diff.Seconds()), v.ExternalIPaddress, v.ExternalIPaddress, iplinks)
+		externalIP := html.EscapeString(v.ExternalIPaddress)
+		userHtml = userHtml + fmt.Sprintf("<div><span class='box' style='background-color: #%02x%02x%02x;'>U</span>user %v: %v seconds(<a href=\"http://%v\">%v</a>,%v)</div>", levelr, levelg, 1, html.EscapeString(k), int(diff.Seconds()), externalIP, externalIP, iplinks)
 		//}
 	}
 	userHtml = userHtml + "</div>"
@@ -137,6 +141,8 @@ func handle_room(c *gin.Context, id string, token string) {
 	room, _ := get_data(c, id, token)
 
 	userHtml := render_users(room.Users)
+	tokenJSON, _ := json.Marshal(token)
+	roomID, _ := strconv.Atoi(c.Query("id"))
 
 	c.Writer.Write([]byte(`
 <!DOCTYPE html>
@@ -225,8 +231,8 @@ window.addEventListener( "pageshow", function ( event ) {
 });
 
 function updateUsers() {
-	var token = "` + token + `";
-	$.get(token+"users?localip="+ipaddress+"&host="+window.location.host, function(data) {
+	var token = ` + string(tokenJSON) + `;
+	$.get(token+"users?id=` + strconv.Itoa(roomID) + `&localip="+encodeURIComponent(ipaddress)+"&host="+encodeURIComponent(window.location.host), function(data) {
 	     $("#users").replaceWith(data);
 	});
 	

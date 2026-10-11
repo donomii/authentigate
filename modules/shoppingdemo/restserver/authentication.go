@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
-	"runtime"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
+
+var storeLock sync.Mutex
 
 // NewError example
 func NewError(ctx *gin.Context, status int, err string) {
@@ -28,21 +29,19 @@ func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Cont
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Println("Caught panic in Authhandler", r)
-				buf := make([]byte, 1<<16)
-				runtime.Stack(buf, true)
-				log.Printf("%s", buf)
-				NewError(c, http.StatusInternalServerError, "Handler failure!")
+				logHandlerFailure(fmt.Sprint(r))
+				NewError(c, http.StatusInternalServerError, fmt.Sprintf("Handler failure: %v", r))
 				return
 			}
 		}()
 		id := c.Request.Header.Get("authentigate-id")
-		fmt.Printf("Request headers: %+v\n", c.Request.Header)
 		if id == "" {
 			id = "demoUser"
 		}
 		baseUrl := c.Request.Header.Get("authentigate-base-url")
-		log.Printf("Got real user id: '%v'", id)
+		logUserRequest(id)
+		storeLock.Lock()
+		defer storeLock.Unlock()
 		handlerFunc(c, id, baseUrl)
 	}
 }

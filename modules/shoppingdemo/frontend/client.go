@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
+	"net/http"
+	"net/url"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -62,11 +64,13 @@ func wrapPage(title, body string) string {
 
 func basket(c *gin.Context, id string, token string) {
 	var basket map[string]int
-	rest(c, shopService, "basket", &basket)
+	if rest(c, shopService, "basket", &basket) == nil {
+		return
+	}
 
 	body := ""
 	for k, v := range basket {
-		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", k, v)
+		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", html.EscapeString(k), v)
 	}
 
 	c.Writer.Write([]byte(wrapPage("Basket", body)))
@@ -130,22 +134,25 @@ func map2wat2(m map[string]int) wat2 {
 func shop(c *gin.Context, id string, token string) {
 	var pricemap map[string]float64
 	resp := rest(c, shopService, "listItems", &pricemap)
+	if resp == nil {
+		return
+	}
 	body := ""
 	prices := SortWat(pricemap)
 	for _, v := range prices {
-		body = body + fmt.Sprintf("<p><a href=\"addItem?item=%v\">%v</a> ... $%v</p>\n", v.Name, v.Name, v.Price)
+		body = body + fmt.Sprintf("<p><a href=\"addItem?item=%v\">%v</a> ... $%v</p>\n", url.QueryEscape(v.Name), html.EscapeString(v.Name), v.Price)
 	}
 
-	resp = rest(c, shopService, "basket", nil)
-
 	var basketmap map[string]int
-	json.Unmarshal(resp.Body(), &basketmap)
+	if rest(c, shopService, "basket", &basketmap) == nil {
+		return
+	}
 
 	body = body + "<h2>Basket</h2>"
 
 	basket := SortWat2(basketmap)
 	for _, v := range basket {
-		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", v.Name, v.Count)
+		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", html.EscapeString(v.Name), v.Count)
 	}
 
 	body = body + "<h2><a href=checkout>Go to checkout</a></h2>"
@@ -154,52 +161,70 @@ func shop(c *gin.Context, id string, token string) {
 
 func coupon(c *gin.Context, id string, token string) {
 	var coupon Coupon
-	rest(c, shopService, "createCoupon?duration=1000&discount=0.7&target=orange", &coupon)
+	if rest(c, shopService, "createCoupon?duration=1000&discount=0.7&target=orange", &coupon) == nil {
+		return
+	}
 
 	body := "<h2>Coupon</h2>"
-	body = body + "<p>Use code " + coupon.Name + " for a " + fmt.Sprintf("%v", coupon.Discount) + " on " + coupon.Target + "</p>"
+	body = body + "<p>Use code " + html.EscapeString(coupon.Name) + " for a " + fmt.Sprintf("%v", coupon.Discount) + " on " + html.EscapeString(coupon.Target) + "</p>"
 	c.Writer.Write([]byte(wrapPage("Shop", body)))
 }
 
 func rest(c *gin.Context, base, endpoint string, data interface{}) *resty.Response {
 	client := resty.New()
+	client.SetTimeout(10 * time.Second)
 	r := client.R()
 	for _, header := range []string{"authentigate-id", "authentigate-token", "authentigate-base-url", "authentigate-top-url"} {
 		r.SetHeader(header, c.Request.Header.Get(header))
 	}
 
-	resp, _ := r.Get(base + endpoint)
+	resp, err := r.Get(base + endpoint)
+	if err != nil {
+		c.String(http.StatusBadGateway, "Shop service request failed: %v", err)
+		return nil
+	} else if resp.StatusCode() < http.StatusOK || resp.StatusCode() >= http.StatusMultipleChoices {
+		c.Data(resp.StatusCode(), "application/json", resp.Body())
+		return nil
+	}
 	if data != nil {
-		json.Unmarshal(resp.Body(), data)
+		if err := json.Unmarshal(resp.Body(), data); err != nil {
+			c.String(http.StatusBadGateway, "Shop service returned invalid JSON for %s: %v", endpoint, err)
+			return nil
+		}
 	}
 	return resp
 }
 
 func addItem(c *gin.Context, id string, token string) {
 	item, _ := c.GetQuery("item")
-	item = strings.Replace(item, " ", "%20", -1)
-	rest(c, shopService, "addItem?item="+item+"&amount=1", nil)
+	if rest(c, shopService, "addItem?item="+url.QueryEscape(item)+"&amount=1", nil) == nil {
+		return
+	}
 	shop(c, id, token)
 }
 
 func checkout(c *gin.Context, id string, token string) {
 
 	var basket map[string]int
-	rest(c, shopService, "basket", &basket)
+	if rest(c, shopService, "basket", &basket) == nil {
+		return
+	}
 
 	body := "<h2>Basket</h2>"
 
 	for k, v := range basket {
-		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", k, v)
+		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", html.EscapeString(k), v)
 	}
 	total := 0.0
 	order := map[string]float64{}
-	rest(c, shopService, "checkout", &order)
+	if rest(c, shopService, "checkout", &order) == nil {
+		return
+	}
 
 	body = body + "<h2>Order</h2>"
 
 	for k, v := range order {
-		body = body + fmt.Sprintf("<p>%v ... $%v</p>\n", k, v)
+		body = body + fmt.Sprintf("<p>%v ... $%v</p>\n", html.EscapeString(k), v)
 		total = total + v
 	}
 	body = body + "<p>Total: " + fmt.Sprintf("%v", total) + "</p>"
@@ -233,13 +258,16 @@ func purchase(c *gin.Context, id string, token string) {
 
 	total := 0.0
 	order := map[string]float64{}
-	resp := rest(c, shopService, "purchase?coupon="+coupon, &order)
+	resp := rest(c, shopService, "purchase?coupon="+url.QueryEscape(coupon), &order)
+	if resp == nil {
+		return
+	}
 	fmt.Printf("%+v\n", resp)
 
 	body := "<h2>Order</h2>"
 
 	for k, v := range order {
-		body = body + fmt.Sprintf("<p>%v ... $%v</p>\n", k, v)
+		body = body + fmt.Sprintf("<p>%v ... $%v</p>\n", html.EscapeString(k), v)
 		total = total + v
 	}
 	body = body + "<p>Total: " + fmt.Sprintf("%v", total) + "</p>"
