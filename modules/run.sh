@@ -1,18 +1,19 @@
 #!/bin/sh
+set -eu
 
-go get github.com/zsais/go-gin-prometheus
+script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
+cd "$script_dir"
+
+go build -mod=readonly -o menu/menu ./menu
+go build -mod=readonly -o presence/presence ./presence
 
 cd shoppingdemo
 ./run.sh &
 cd ..
 
 cd menu
-rm menu
-go build .
 ./menu &
 cd ..
 
 cd presence
-rm presence
-go build .
 ./presence

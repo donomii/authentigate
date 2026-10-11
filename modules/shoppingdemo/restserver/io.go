@@ -4,20 +4,32 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
+	"os"
+	"path/filepath"
+	"strings"
 )
+
+func userFilename(id string) string {
+	if id == "" || strings.ContainsAny(id, "/\\") {
+		panic(fmt.Errorf("invalid user ID %q: expected a nonempty filename without path separators", id))
+	}
+	return fmt.Sprintf("userdata/%v.json", id)
+}
 
 func LoadUser(id string) *User {
 	var out *User
-	res, err := ioutil.ReadFile(fmt.Sprintf("userdata/%v.json", id))
-	err = json.Unmarshal(res, &out)
-	if err != nil {
-		log.Println("Could not load user", err)
-		//panic(err)
-	}
-	if out == nil {
+	filename := userFilename(id)
+	res, err := ioutil.ReadFile(filename)
+	if os.IsNotExist(err) {
 		t := User{Name: id, Basket: map[string]int{}, UsedCoupons: map[string]int{}, Orders: []map[string]float64{}}
 		out = &t
+	} else if err != nil {
+		panic(fmt.Errorf("could not read user %q from %s: %w", id, filename, err))
+	} else if err := json.Unmarshal(res, &out); err != nil {
+		//panic(err)
+		panic(fmt.Errorf("could not decode user %q from %s: %w", id, filename, err))
+	} else if out == nil || out.Basket == nil || out.UsedCoupons == nil {
+		panic(fmt.Errorf("invalid user %q in %s: expected basket and used coupon maps", id, filename))
 	}
 	return out
 }
@@ -25,22 +37,24 @@ func LoadUser(id string) *User {
 func SaveUser(id string, tasks *User) {
 	payload, err := json.Marshal(tasks)
 	if err != nil {
-		panic("Could not marshall user")
+		panic(fmt.Errorf("could not encode user %q: %w", id, err))
 	}
-	ioutil.WriteFile(fmt.Sprintf("userdata/%v.json", id), payload, 0600)
+	writeJSON(userFilename(id), payload)
 }
 
 func LoadStore() *Shop {
 	var out *Shop
-	res, err := ioutil.ReadFile(fmt.Sprintf("shop.json"))
-	err = json.Unmarshal(res, &out)
-	if err != nil {
-		log.Println("Could not load shop", err)
-		//panic(err)
-	}
-	if out == nil {
+	res, err := ioutil.ReadFile("shop.json")
+	if os.IsNotExist(err) {
 		t := Shop{Prices: map[string]float64{"apple": 1.0, "banana": 2.0, "pear": 3.0, "orange": 4.0, "fruit combo set": 18.0 * 0.7}, Coupons: map[string]Coupon{}}
 		out = &t
+	} else if err != nil {
+		panic(fmt.Errorf("could not read shop.json: %w", err))
+	} else if err := json.Unmarshal(res, &out); err != nil {
+		//panic(err)
+		panic(fmt.Errorf("could not decode shop.json: %w", err))
+	} else if out == nil || out.Prices == nil || out.Coupons == nil {
+		panic("invalid shop.json: expected price and coupon maps")
 	}
 	return out
 }
@@ -48,7 +62,23 @@ func LoadStore() *Shop {
 func SaveStore(store *Shop) {
 	payload, err := json.Marshal(store)
 	if err != nil {
-		panic("Could not marshall shop")
+		panic(fmt.Errorf("could not encode shop.json: %w", err))
 	}
-	ioutil.WriteFile(fmt.Sprintf("shop.json"), payload, 0600)
+	writeJSON("shop.json", payload)
+}
+
+func writeJSON(filename string, payload []byte) {
+	file, err := os.CreateTemp(filepath.Dir(filename), ".authentigate-*.json")
+	if err != nil {
+		panic(fmt.Errorf("could not create temporary file for %s: %w", filename, err))
+	}
+	_, writeErr := file.Write(payload)
+	closeErr := file.Close()
+	if writeErr != nil {
+		panic(fmt.Errorf("could not write %s: %w", filename, writeErr))
+	} else if closeErr != nil {
+		panic(fmt.Errorf("could not close temporary file for %s: %w", filename, closeErr))
+	} else if err := os.Rename(file.Name(), filename); err != nil {
+		panic(fmt.Errorf("could not replace %s with saved data: %w", filename, err))
+	}
 }
