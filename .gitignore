@@ -4,7 +4,9 @@
 /modules/presence/presence
 /modules/presence/client/client
 /modules/shoppingdemo/restserver/restserver
+/modules/shoppingdemo/restserver/demo
 /modules/shoppingdemo/frontend/frontend
+/modules/shoppingdemo/frontend/client
 /vhoster/vhoster
 *.exe
 *.exe~
