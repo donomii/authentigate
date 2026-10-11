@@ -252,6 +252,9 @@ func totploginHandler(c *gin.Context) {
 		displayPage(c, "", "files/totplogin.html", nil, nil)
 		return
 	}
+	if !validCookieOrigin(c) {
+		return
+	}
 	if !allowOTPLogin(c) {
 		return
 	}

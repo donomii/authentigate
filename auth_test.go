@@ -229,6 +229,21 @@ func TestTOTPLoginWithoutSession(t *testing.T) {
 	}
 }
 
+func TestTOTPLoginRejectsAnotherOriginWithoutSession(t *testing.T) {
+	authTestDatabase(t)
+	user := authTestUser(t, "account-id", "alice")
+	router := authTestRouter()
+	form := url.Values{"username": {user.UserName}, "code": {gotp.NewDefaultTOTP(user.OtpSecret).Now()}}
+	request := httptest.NewRequest(http.MethodPost, "/totplogin", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://attacker.example")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || len(response.Result().Cookies()) != 0 || LoadUser(user.Id).OTPLastStep != 0 {
+		t.Fatalf("cross-origin authenticator login created a session or consumed a code: status=%d", response.Code)
+	}
+}
+
 func TestTOTPAttemptLimitAndReplayPersistence(t *testing.T) {
 	authTestDatabase(t)
 	user := authTestUser(t, "account-id", "alice")
