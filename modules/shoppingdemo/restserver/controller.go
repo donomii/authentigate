@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// swagger:route GET /shoppr/api/v1/createCoupon coupon createCoupon
+// swagger:route POST /shoppr/api/v1/createCoupon coupon createCoupon
 // Create a new coupon for given duration, discount and target item.
 // responses:
 //   200: Coupon
@@ -77,7 +77,7 @@ func listItems(c *gin.Context, id string, token string) {
 	json.NewEncoder(c.Writer).Encode(LoadStore().Prices)
 }
 
-// swagger:route GET /shoppr/api/v1/deleteCoupon coupon deleteCoupon
+// swagger:route POST /shoppr/api/v1/deleteCoupon coupon deleteCoupon
 // Delete a coupon.
 // responses:
 //   200:
@@ -91,7 +91,7 @@ func deleteCoupon(c *gin.Context, id string, token string) {
 	SaveStore(store)
 }
 
-// swagger:route GET /shoppr/api/v1/addItem basket addItem
+// swagger:route POST /shoppr/api/v1/addItem basket addItem
 // Add item to basket.
 // responses:
 //   200:
@@ -134,7 +134,7 @@ func basket(c *gin.Context, id string, token string) {
 	c.JSON(http.StatusOK, newBasket)
 }
 
-// swagger:route GET /shoppr/api/v1/reset reset reset
+// swagger:route POST /shoppr/api/v1/reset reset reset
 // Reset all data for testing.
 // responses:
 //   200:
@@ -164,10 +164,8 @@ func checkout(c *gin.Context, id string, token string) {
 	json.NewEncoder(c.Writer).Encode(order)
 }
 
-func checkPayment(ccname, ccnumber, ccexpiry string) {}
-
-// swagger:route GET /shoppr/api/v1/purchase basket purchase
-// Purchase basket.
+// swagger:route POST /shoppr/api/v1/purchase basket purchase
+// Record a demo order without collecting payment.
 // responses:
 //   200: map[string]float64
 
@@ -175,15 +173,10 @@ func checkPayment(ccname, ccnumber, ccexpiry string) {}
 // swagger:response map[string]float64
 func purchase(c *gin.Context, id string, token string) {
 	coupon, _ := c.GetQuery("coupon")
-	ccname, _ := c.GetQuery("ccname")
-	ccnumber, _ := c.GetQuery("ccnumber")
-	ccexpiry, _ := c.GetQuery("ccexpiry")
 
 	user := LoadUser(id)
 	basket := recalculateBasket(user.Basket)
 	order := calculateOrder(basket, coupon, user)
-	//Valid payment here
-	checkPayment(ccname, ccnumber, ccexpiry)
 	if details, exists := LoadStore().Coupons[coupon]; exists && details.Expiry.After(time.Now()) && basket[details.Target] > 0 {
 		user.UsedCoupons[coupon] = 1
 	}

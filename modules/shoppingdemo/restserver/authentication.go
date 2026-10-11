@@ -34,6 +34,10 @@ func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Cont
 				return
 			}
 		}()
+		if c.Request.Method == http.MethodPost && c.GetHeader("X-Requested-With") != "authentigate-shop" {
+			NewError(c, http.StatusForbidden, "State-changing shop requests require the X-Requested-With: authentigate-shop header")
+			return
+		}
 		id := c.Request.Header.Get("authentigate-id")
 		if id == "" {
 			id = "demoUser"

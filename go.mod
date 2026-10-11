@@ -3,7 +3,6 @@ module github.com/donomii/authentigate
 go 1.26.2
 
 require (
-	github.com/boltdb/bolt v1.3.1
 	github.com/danilopolani/gocialite v1.0.2
 	github.com/donomii/gin v1.8.2-0.20220706021356-e45e52d206d4
 	github.com/donomii/goof v0.0.0-20241124064022-84f417f466df
@@ -18,6 +17,7 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/xlzd/gotp v0.1.0
 	github.com/zsais/go-gin-prometheus v1.0.3
+	go.etcd.io/bbolt v1.5.0
 )
 
 require (

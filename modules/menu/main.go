@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/boltdb/bolt"
+	bolt "go.etcd.io/bbolt"
 	"github.com/danilopolani/gocialite"
 	"github.com/gin-gonic/gin"
 )
@@ -243,7 +243,6 @@ func (s *server) Exists(bucket, key string) bool {
 	} else {
 		return true
 	}
-	return false
 }
 func (s *server) Put(bucket, key string, val []byte) error {
 	return s.db.Update(func(tx *bolt.Tx) error {

@@ -37,9 +37,10 @@ func shopRouter(t *testing.T) *gin.Engine {
 	return router
 }
 
-func shopRequest(router *gin.Engine, endpoint string) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(http.MethodGet, "/api/"+endpoint, nil)
+func shopRequest(router *gin.Engine, method, endpoint string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, "/api/"+endpoint, nil)
 	request.Header.Set("authentigate-id", "buyer")
+	request.Header.Set("X-Requested-With", "authentigate-shop")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	return response
@@ -47,19 +48,19 @@ func shopRequest(router *gin.Engine, endpoint string) *httptest.ResponseRecorder
 
 func TestCouponRoutesListAndDeletePersistedCoupons(t *testing.T) {
 	router := shopRouter(t)
-	response := shopRequest(router, "createCoupon?discount=0.7&duration=100&target=orange")
+	response := shopRequest(router, http.MethodPost, "createCoupon?discount=0.7&duration=100&target=orange")
 	var coupon Coupon
 	if err := json.Unmarshal(response.Body.Bytes(), &coupon); err != nil || coupon.Name == "" {
 		t.Fatalf("create coupon: status %d, body %s, error %v", response.Code, response.Body.String(), err)
 	}
 	for _, endpoint := range []string{"listCoupon", "listCoupons"} {
-		response = shopRequest(router, endpoint)
+		response = shopRequest(router, http.MethodGet, endpoint)
 		var coupons map[string]Coupon
 		if err := json.Unmarshal(response.Body.Bytes(), &coupons); err != nil || len(coupons) != 1 || coupons[coupon.Name].Name != coupon.Name {
 			t.Fatalf("%s returned %s; error %v", endpoint, response.Body.String(), err)
 		}
 	}
-	response = shopRequest(router, "deleteCoupon?coupon="+url.QueryEscape(coupon.Name))
+	response = shopRequest(router, http.MethodPost, "deleteCoupon?coupon="+url.QueryEscape(coupon.Name))
 	if response.Code != http.StatusOK || len(LoadStore().Coupons) != 0 {
 		t.Fatalf("coupon deletion not persisted: status %d, coupons %v", response.Code, LoadStore().Coupons)
 	}
@@ -76,10 +77,10 @@ func TestPurchaseRejectsExpiredAndPreviouslyUsedDiscounts(t *testing.T) {
 			SaveStore(store)
 		}
 		for purchaseNumber := 0; purchaseNumber < 2; purchaseNumber++ {
-			if response := shopRequest(router, "addItem?item=orange&amount=1"); response.Code != http.StatusOK {
+			if response := shopRequest(router, http.MethodPost, "addItem?item=orange&amount=1"); response.Code != http.StatusOK {
 				t.Fatalf("add item: %s", response.Body.String())
 			}
-			response := shopRequest(router, "purchase?coupon="+coupon.Name)
+			response := shopRequest(router, http.MethodPost, "purchase?coupon="+coupon.Name)
 			var order map[string]float64
 			if err := json.Unmarshal(response.Body.Bytes(), &order); err != nil {
 				t.Fatal(err)
@@ -102,7 +103,7 @@ func TestInvalidShopInputsDoNotChangeState(t *testing.T) {
 		"createCoupon?discount=NaN", "createCoupon?discount=2", "createCoupon?discount=0.7&duration=-1",
 		"createCoupon?discount=0.7&duration=bad", "createCoupon?discount=0.7&target=unknown",
 	} {
-		response := shopRequest(router, endpoint)
+		response := shopRequest(router, http.MethodPost, endpoint)
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("%s: status %d, body %s", endpoint, response.Code, response.Body.String())
 		}
@@ -120,7 +121,7 @@ func TestConcurrentAddsPreserveEveryItem(t *testing.T) {
 		requests.Add(1)
 		go func() {
 			defer requests.Done()
-			response := shopRequest(router, "addItem?item=apple&amount=1")
+			response := shopRequest(router, http.MethodPost, "addItem?item=apple&amount=1")
 			if response.Code != http.StatusOK {
 				t.Errorf("concurrent add: status %d, body %s", response.Code, response.Body.String())
 			}
@@ -138,7 +139,7 @@ func TestCorruptedDataAndWriteFailuresAreReported(t *testing.T) {
 	if err := os.WriteFile("userdata/buyer.json", []byte(invalid), 0600); err != nil {
 		t.Fatal(err)
 	}
-	response := shopRequest(router, "addItem?item=apple&amount=1")
+	response := shopRequest(router, http.MethodPost, "addItem?item=apple&amount=1")
 	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "could not decode user") {
 		t.Fatalf("corrupt data response: status %d, body %s", response.Code, response.Body.String())
 	}
@@ -149,7 +150,7 @@ func TestCorruptedDataAndWriteFailuresAreReported(t *testing.T) {
 	if err := os.Mkdir("shop.json", 0700); err != nil {
 		t.Fatal(err)
 	}
-	response = shopRequest(router, "reset")
+	response = shopRequest(router, http.MethodPost, "reset")
 	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "could not replace shop.json") {
 		t.Fatalf("failed write response: status %d, body %s", response.Code, response.Body.String())
 	}
@@ -157,12 +158,28 @@ func TestCorruptedDataAndWriteFailuresAreReported(t *testing.T) {
 
 func TestUserIDCannotEscapeDataDirectory(t *testing.T) {
 	router := shopRouter(t)
-	request := httptest.NewRequest(http.MethodGet, "/api/reset", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/reset", nil)
 	request.Header.Set("authentigate-id", "../../outside")
+	request.Header.Set("X-Requested-With", "authentigate-shop")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "invalid user ID") {
 		t.Fatalf("invalid user ID response: status %d, body %s", response.Code, response.Body.String())
+	}
+}
+
+func TestStateChangesRequirePostAndClientHeader(t *testing.T) {
+	router := shopRouter(t)
+	for _, endpoint := range []string{"purchase", "addItem", "createCoupon", "deleteCoupon", "reset"} {
+		response := shopRequest(router, http.MethodGet, endpoint)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("GET %s changed state: HTTP %d", endpoint, response.Code)
+		}
+		response = httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/"+endpoint, nil))
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("POST %s accepted a request without client header: HTTP %d", endpoint, response.Code)
+		}
 	}
 }
 
