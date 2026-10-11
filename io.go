@@ -53,7 +53,7 @@ func LoadConfig(file string) *Config {
 
 func validateConfig(config *Config) error {
 	base, err := url.Parse(config.BaseUrl)
-	if err != nil || base.Host == "" || (base.Scheme != "http" && base.Scheme != "https") || !strings.HasSuffix(base.Path, "/") {
+	if err != nil || base.Hostname() == "" || (base.Scheme != "http" && base.Scheme != "https") || !strings.HasSuffix(base.Path, "/") {
 		return fmt.Errorf("BaseUrl must be an absolute HTTP or HTTPS URL ending in /; received %q", config.BaseUrl)
 	}
 	if config.Port < 1 || config.Port > 65535 {
@@ -73,7 +73,7 @@ func validateConfig(config *Config) error {
 	}
 	for _, relay := range config.Redirects {
 		target, err := url.Parse(relay.To)
-		if err != nil || target.Host == "" || (target.Scheme != "http" && target.Scheme != "https") || target.Fragment != "" {
+		if err != nil || target.Hostname() == "" || (target.Scheme != "http" && target.Scheme != "https") || target.Fragment != "" {
 			return fmt.Errorf("route %q To must be an absolute HTTP or HTTPS URL without a fragment; received %q", relay.Name, relay.To)
 		}
 		if relay.Name == "" || !strings.HasPrefix(relay.From, "/") {

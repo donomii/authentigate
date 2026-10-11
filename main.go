@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -589,78 +588,15 @@ func developCallbackHandler(c *gin.Context) {
 
 func ngfileserverRelayParameterisedHandler(c *gin.Context, id, token string, relay *Redirect, useCookie bool) {
 	c.Header("Cache-Control", "no-cache,no-store")
-	api := c.Param("api")
-	log.Printf("api call: %v with id %v\n", api, id)
-
-	client := &http.Client{}
-	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
-	params := ""
-	if len(uribits) > 1 {
-		params = "?" + uribits[1]
-	}
-	req, err := http.NewRequest("GET", relay.To+api+params, nil)
-
-	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-	log.Printf("Relaying call to %v\n", req.URL)
-	resp, err := client.Do(req)
-	respData, err := ioutil.ReadAll(resp.Body)
-	check(err)
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Status(resp.StatusCode)
-	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	relayHTTPHandler(c, id, token, relay, useCookie)
 }
 
 func ngfileserverRelayHandler(c *gin.Context, id, token, target string) {
-
-	api := c.Param("api")
-	log.Printf("api call: %v with id %v\n", api, id)
-
-	completeBaseUrl := fmt.Sprintf("%v%v/ngfileserver/", baseUrl, token)
-
-	client := &http.Client{}
-
-	req, err := http.NewRequest("GET", target+api, nil)
-
-	req.Header.Add("authentigate-id", id)
-	req.Header.Add("authentigate-token", token)
-	req.Header.Add("authentigate-base-url", completeBaseUrl)
-	log.Printf("Relaying call to %v\n", req.URL)
-	resp, err := client.Do(req)
-	respData, err := ioutil.ReadAll(resp.Body)
-	check(err)
-	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	relay := &Redirect{Name: "ngfileserver", To: target}
+	relayHTTPHandler(c, id, token, relay, false)
 }
 
 func ngfileserverPutRelayHandler(c *gin.Context, id, token, target string) {
-
-	api := c.Param("api")
-	log.Printf("api call: %v with id %v\n", api, id)
-
-	completeBaseUrl := fmt.Sprintf("%v%v/ngfileserver/", baseUrl, token)
-
-	client := &http.Client{}
-
-	req, err := http.NewRequest("PUT", target+api, nil)
-
-	req.Header.Add("authentigate-id", id)
-	req.Header.Add("authentigate-token", token)
-	req.Header.Add("authentigate-base-url", completeBaseUrl)
-	//FIXME: Move to config file, allow configuration per-endpoint
-	CopyHeaders := []string{"Content-Type", "Content-Length"}
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
-	}
-	bodyData, _ := ioutil.ReadAll(c.Request.Body)
-	req.Body = ioutil.NopCloser(bytes.NewReader(bodyData))
-	log.Printf("Relaying put call to %v\n", req.URL)
-	resp, err := client.Do(req)
-	respData, err := ioutil.ReadAll(resp.Body)
-	check(err)
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Status(resp.StatusCode)
-	c.Writer.Write(respData)
-	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	relay := &Redirect{Name: "ngfileserver", To: target}
+	relayHTTPHandler(c, id, token, relay, false)
 }

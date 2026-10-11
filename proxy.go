@@ -50,7 +50,7 @@ func relayURL(c *gin.Context, relay *Redirect) (*url.URL, error) {
 	if err != nil {
 		return nil, err
 	}
-	if target.Host == "" || (target.Scheme != "http" && target.Scheme != "https") {
+	if target.Hostname() == "" || (target.Scheme != "http" && target.Scheme != "https") {
 		return nil, fmt.Errorf("route %q requires an absolute HTTP or HTTPS upstream URL", relay.Name)
 	}
 	api := c.Param("api")
@@ -102,6 +102,8 @@ func relayRequest(c *gin.Context, id, token string, relay *Redirect, useCookie b
 		return nil, err
 	}
 	headers := append([]string{"Content-Type", "Content-Disposition", "Accept", "Accept-Language"}, relay.CopyHeaders...)
+	sourceHeaders := c.Request.Header.Clone()
+	removeHopHeaders(sourceHeaders)
 	copied := make(map[string]bool)
 	for _, name := range headers {
 		name = http.CanonicalHeaderKey(name)
@@ -109,7 +111,7 @@ func relayRequest(c *gin.Context, id, token string, relay *Redirect, useCookie b
 			continue
 		}
 		copied[name] = true
-		for _, value := range c.Request.Header.Values(name) {
+		for _, value := range sourceHeaders.Values(name) {
 			req.Header.Add(name, value)
 		}
 	}
@@ -179,7 +181,12 @@ func relayHTTPHandler(c *gin.Context, id, token string, relay *Redirect, useCook
 	defer resp.Body.Close()
 	responseBody, err := readRelayBody(resp.Body)
 	if err != nil {
-		c.String(http.StatusBadGateway, "Cannot read response from upstream %s: %v", relay.Name, err)
+		status := http.StatusBadGateway
+		var timeout net.Error
+		if errors.As(err, &timeout) && timeout.Timeout() {
+			status = http.StatusGatewayTimeout
+		}
+		c.String(status, "Cannot read response from upstream %s: %v", relay.Name, err)
 		return
 	}
 	removeHopHeaders(resp.Header)
