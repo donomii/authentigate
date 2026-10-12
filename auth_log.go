@@ -12,6 +12,7 @@ var logURLPattern = regexp.MustCompile(`(?i)\b(?:https?|wss?|otpauth)://[^\s"'<>
 var logCredentialPattern = regexp.MustCompile(`(?i)("?(?:access_token|refresh_token|id_token|client_secret|otp_secret|authentigate-token|token|secret|password)"?\s*[:=]\s*)("[^"]*"|[^\s&;,}]+)`)
 
 func redactLogSecrets(message string, secrets ...string) string {
+	message = logURLPattern.ReplaceAllString(message, "[redacted URL]")
 	for _, secret := range secrets {
 		if secret != "" {
 			message = strings.ReplaceAll(message, secret, "[redacted]")

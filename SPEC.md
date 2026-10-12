@@ -48,6 +48,8 @@ This project consists of two main components designed to facilitate running mult
 
 Rotating a session token saves the new mapping and current user record, removes the old mapping, and updates the browser's session cookie and account page together. The username and authenticator enrollment remain unchanged. An old mapping cannot authenticate after rotation even if removing it from storage fails. Account management requests recheck their presented token before making changes, so a request authenticated before rotation cannot subsequently update the account with the revoked token. Existing tokens remain usable until rotated, provided they match their saved user record.
 
+Authenticator QR images are embedded in authenticated account pages. The public QR-file route is not served, including for files created by earlier versions, so a revoked token cannot retrieve an authenticator secret through an old QR-image URL.
+
 Session and provider mappings store user IDs as JSON strings. Storage failures during rotation are reported as errors instead of successful account updates. Within a gateway process, token rotation and account management use one consistent view of the user record.
 
 Application diagnostics omit session tokens, authenticator secrets and provisioning URLs, OAuth credentials, request cookies and authorization headers, request/response payloads, and credential-bearing URLs. Request logs identify the method, registered route, user or upstream host, and outcome where available. Error logs retain the failure cause and upstream status while redacting credentials. Public response bodies and normal proxy forwarding retain their existing behavior.

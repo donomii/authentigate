@@ -254,4 +254,45 @@ func TestURLFailuresKeepCauseWithoutCredentials(t *testing.T) {
 	if strings.Contains(detail, "private-") || !strings.Contains(detail, "connection refused") {
 		t.Fatalf("unsafe or incomplete diagnostic: %s", detail)
 	}
+	rootRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	detail = requestLogDetail(&Context{Request: rootRequest}, err.Error())
+	if strings.Contains(detail, "private-") || !strings.Contains(detail, "connection refused") {
+		t.Fatalf("root request exposed credentials or lost the failure cause: %s", detail)
+	}
+}
+
+func TestAccountQRImagesRequireCurrentAuthentication(t *testing.T) {
+	useAuthTestStore(t)
+	user := createAuthTestUser(t)
+	for _, handler := range []struct {
+		name string
+		call func(*Context, string, string, *Redirect, bool)
+	}{{"token", tokenShowHandler}, {"updateUser", updateUserHandler}} {
+		request := httptest.NewRequest(http.MethodPost, "/manage/"+user.Token+"/"+handler.name, strings.NewReader("username=renamed-user"))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response := httptest.NewRecorder()
+		handler.call(&Context{Writer: response, Request: request}, user.Id, user.Token, nil, false)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "data:image/png;base64,") {
+			t.Fatalf("%s returned status %d without an inline authenticator image", handler.name, response.Code)
+		}
+		if strings.Contains(response.Body.String(), "/qrcodes/") {
+			t.Fatalf("%s exposed a public authenticator image URL", handler.name)
+		}
+	}
+	newToken(user.Id)
+	t.Chdir(t.TempDir())
+	if err := os.Mkdir("qrcodes", 0700); err != nil {
+		t.Fatal(err)
+	}
+	image := generateTOTPWithSecret(user.OtpSecret, user.UserName)
+	if err := os.WriteFile(filepath.Join("qrcodes", user.Token+".png"), image, 0600); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	registerPublicFiles(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/qrcodes/"+user.Token+".png", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("public authenticator image returned status %d; expected 404", response.Code)
+	}
 }

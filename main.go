@@ -199,6 +199,13 @@ type Config struct {
 
 var config *Config
 
+func registerPublicFiles(mux *http.ServeMux) {
+	mux.Handle("GET /files/", http.StripPrefix("/files/", http.FileServer(http.Dir("./files"))))
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./favicon.ico")
+	})
+}
+
 func main() {
 	config = LoadConfig("config.json")
 	if config == nil {
@@ -230,11 +237,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Static files - register first to avoid conflicts
-	mux.Handle("GET /files/", http.StripPrefix("/files/", http.FileServer(http.Dir("./files"))))
-	mux.Handle("GET /qrcodes/", http.StripPrefix("/qrcodes/", http.FileServer(http.Dir("./qrcodes"))))
-	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./favicon.ico")
-	})
+	registerPublicFiles(mux)
 
 	// Front page - exact match only
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -391,14 +394,8 @@ func updateUserHandler(c *Context, id string, token string, relay *Redirect, use
 		user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
 	}
 	saveUserLocked(user)
-	png := user.QRcode
-	//Save the png to a temporary directory then server it
-	tmpDir := "qrcodes"
-	os.Mkdir(tmpDir, 0700)
-	fname := fmt.Sprintf("%v/%v.png", tmpDir, token)
-	ioutil.WriteFile(fname, png, 0600)
 	b.UserNames.Set(username, user.Id)
-	displayPage(c, token, "files/showToken.html", nil, map[string]string{"TOKEN": token, "QRCODE": "/" + fname, "UPDATEUSERURL": "/manage/" + token + "/updateUser", "USERNAME": username})
+	displayUserTokenPage(c, user, nil)
 	return
 }
 
@@ -560,13 +557,7 @@ func tokenShowHandler(c *Context, id string, token string, relay *Redirect, useC
 		user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
 		saveUserLocked(user)
 	}
-	png := user.QRcode
-	//Save the png to a temporary directory then server it
-	tmpDir := "qrcodes"
-	os.Mkdir(tmpDir, 0700)
-	fname := fmt.Sprintf("%v/%v.png", tmpDir, token)
-	ioutil.WriteFile(fname, png, 0600)
-	displayPage(c, token, "files/showToken.html", nil, map[string]string{"QRCODE": "/" + fname, "UPDATEUSERURL": "/manage/" + token + "/updateUser"})
+	displayUserTokenPage(c, user, nil)
 }
 
 // Show the user the successful login message
