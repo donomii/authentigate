@@ -26,6 +26,8 @@ authentigate
 modules/cameraview/cameraview
 modules/menu/menu
 modules/presence/presence
+modules/shoppingdemo/frontend/client
+modules/shoppingdemo/restserver/demo
 
 # Local camera config (contains private network addresses)
 modules/cameraview/cameras.json
