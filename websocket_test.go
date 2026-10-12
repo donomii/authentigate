@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -183,4 +184,66 @@ func websocketGateway(t *testing.T, upstream string) *httptest.Server {
 		upgradeAndHandle(c, request)
 	})
 	return httptest.NewServer(mux)
+}
+
+func TestAuthenticatedWebSocketRelay(t *testing.T) {
+	useAuthTestStore(t)
+	user := createAuthTestUser(t)
+	originalConfig, originalAccess := config, accessLog
+	config, accessLog = &Config{Port: 8000}, io.Discard
+	t.Cleanup(func() { config, accessLog = originalConfig, originalAccess })
+	requests := make(chan *http.Request, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- r
+		upgrader := websocket.Upgrader{Subprotocols: []string{"events"}}
+		connection, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upstream upgrade: %v", err)
+			return
+		}
+		defer connection.Close()
+		messageType, message, err := connection.ReadMessage()
+		if err != nil {
+			t.Errorf("upstream read: %v", err)
+			return
+		}
+		if err := connection.WriteMessage(messageType, message); err != nil {
+			t.Errorf("upstream write: %v", err)
+		}
+	}))
+	defer upstream.Close()
+	relay := &Redirect{Name: "socket", To: upstream.URL + "/base?fixed=1", CopyHeaders: []string{"X-Request-ID"}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /secure/{token}/socket/{api...}", makeAuthedRelay(relayGetHandler, relay, nil))
+	gateway := httptest.NewServer(mux)
+	defer gateway.Close()
+	dialer := websocket.Dialer{Subprotocols: []string{"events"}, HandshakeTimeout: 5 * time.Second}
+	endpoint := "ws" + strings.TrimPrefix(gateway.URL, "http") + "/secure/" + user.Token + "/socket/chat%2Froom?client=2"
+	client, _, err := dialer.Dial(endpoint, http.Header{"X-Request-Id": []string{"request-through-auth"}})
+	if err != nil {
+		t.Fatalf("authenticated gateway upgrade: %v", err)
+	}
+	defer client.Close()
+	if client.Subprotocol() != "events" {
+		t.Fatalf("selected protocol=%q", client.Subprotocol())
+	}
+	request := <-requests
+	if request.RequestURI != "/base/chat%2Froom?fixed=1&client=2" {
+		t.Errorf("upstream request URI=%q", request.RequestURI)
+	}
+	for name, expected := range map[string]string{
+		"authentigate-id": user.Id, "authentigate-token": user.Token, "X-Request-ID": "request-through-auth",
+	} {
+		if actual := request.Header.Get(name); actual != expected {
+			t.Errorf("upstream %s=%q; expected %q", name, actual, expected)
+		}
+	}
+	client.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := client.WriteMessage(websocket.TextMessage, []byte("authenticated message")); err != nil {
+		t.Fatal(err)
+	}
+	_, message, err := client.ReadMessage()
+	if err != nil || string(message) != "authenticated message" {
+		t.Fatalf("relayed message=%q error=%v", message, err)
+	}
 }

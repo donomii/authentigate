@@ -816,7 +816,14 @@ func relayGetHandler(c *Context, id, token string, relay *Redirect, useCookie bo
 	}
 
 	//TODO make this configurable from a file
-	req, err := http.NewRequest("GET", relay.To+api+params, nil)
+	var req *http.Request
+	var err error
+	if websocket.IsWebSocketUpgrade(c.Request) {
+		req, err = newWebSocketRequest(c, relay.To)
+	} else {
+		req, err = http.NewRequest("GET", relay.To+api+params, nil)
+	}
+	check(err)
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 
@@ -832,8 +839,7 @@ func relayGetHandler(c *Context, id, token string, relay *Redirect, useCookie bo
 		req.Header.Add(h, c.Request.Header.Get(h))
 	}
 
-	upgradeH := c.Request.Header.Get("upgrade")
-	if upgradeH == "websocket" {
+	if websocket.IsWebSocketUpgrade(c.Request) {
 		logRelayRequest(c, id)
 		upgradeAndHandle(c, req)
 		return
