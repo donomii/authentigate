@@ -64,7 +64,7 @@ The upstream handshake completes before the browser connection is accepted. An u
 
 Camera viewers share one upstream connection per active camera. A viewer is registered before a new upstream connection starts. The gateway waits for the camera's response headers, requires HTTP 200 with a valid `multipart/x-mixed-replace` Content-Type and boundary, and passes that Content-Type to viewers unchanged. Connection failures, unexpected status codes, and invalid stream headers return HTTP 502 with the reason and camera identity.
 
-Each viewer has a bounded queue. A viewer whose queue fills is removed from the stream and receives only its already-queued, uninterrupted prefix followed by the end of the response. Bytes are never discarded from the middle of a continuing viewer stream. Other viewers continue receiving the shared stream. When the final viewer leaves, the upstream connection closes.
+Each viewer has a bounded queue. A viewer whose queue fills is removed from the stream and disconnected, including when its response is blocked writing to the network. The viewer receives an uninterrupted prefix of the stream up to disconnection; bytes are never discarded from the middle of a continuing stream. Other viewers continue receiving the shared stream. When the final viewer leaves, the upstream connection closes.
 
 ## Local Verification
 
