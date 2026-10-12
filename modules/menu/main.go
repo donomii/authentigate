@@ -48,7 +48,7 @@ func makeAuthed(handlerFunc func(*Context, string, string, string)) http.Handler
 		baseUrl := c.Request.Header.Get("authentigate-base-url")
 		topUrl := c.Request.Header.Get("authentigate-top-url")
 
-		log.Printf("Got real user id: '%v', baseUrl: '%v'", id, baseUrl)
+		logMenuUser(id)
 		handlerFunc(c, id, baseUrl, topUrl)
 	}
 }
@@ -191,7 +191,6 @@ func (s *server) Exists(bucket, key string) bool {
 	} else {
 		return true
 	}
-	return false
 }
 func (s *server) Put(bucket, key string, val []byte) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
@@ -293,7 +292,6 @@ func displayStaticPage(c *Context, filename string) {
 		log.Println(err)
 	}
 	template := string(templateb)
-	log.Println(template)
 	c.Writer.Write([]byte(template))
 }
 

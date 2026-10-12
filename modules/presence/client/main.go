@@ -71,19 +71,19 @@ func getWrapper(token, hostname string, ip []string) {
 	//Catch all errors and return
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("Recovered in f", r)
+			logPresenceFailure(hostname, token, fmt.Sprint(r))
 			debug.PrintStack()
 		}
 	}()
 	//Call server using hostname and ip
 	ips := strings.Join(ip, ",")
 	callStr := fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/"+token+"/presence/users?localip=%v&host=%v", ips, hostname)
-	log.Println(callStr)
+	logPresenceRequest(hostname)
 	thing, err := http.Get(callStr)
 	if err == nil {
 		thing.Body.Close()
 	} else {
-		fmt.Println("Error:", err)
+		logPresenceFailure(hostname, token, err.Error())
 	}
 }
 
