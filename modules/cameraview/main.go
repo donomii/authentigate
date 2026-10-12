@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -47,39 +48,54 @@ var cameraClient = &http.Client{
 	},
 }
 
-// subscriber is a channel that receives chunks of MJPEG data.
-type subscriber chan []byte
+// subscriber receives MJPEG chunks and an eviction signal when it falls behind.
+type subscriber struct {
+	chunks  chan []byte
+	evicted chan struct{}
+}
 
 // cameraStream manages a single upstream camera connection and fans it out to
 // all active subscribers. It closes the upstream when the last subscriber leaves.
 type cameraStream struct {
 	mu          sync.Mutex
-	subscribers map[subscriber]struct{}
+	subscribers map[*subscriber]struct{}
 	cancel      func() // closes the upstream connection
+	ready       chan struct{}
+	contentType string
+	startupErr  error
+	closed      bool
 }
 
 func newCameraStream() *cameraStream {
 	return &cameraStream{
-		subscribers: make(map[subscriber]struct{}),
+		subscribers: make(map[*subscriber]struct{}),
+		ready:       make(chan struct{}),
 	}
 }
 
-// subscribe adds a subscriber and returns its channel plus an unsubscribe func.
-func (s *cameraStream) subscribe() (subscriber, func()) {
-	ch := make(subscriber, 8)
+// subscribe adds a subscriber and returns it plus an unsubscribe func.
+func (s *cameraStream) subscribe() (*subscriber, func(), bool) {
+	viewer := &subscriber{chunks: make(chan []byte, 8), evicted: make(chan struct{})}
 	s.mu.Lock()
-	s.subscribers[ch] = struct{}{}
+	if s.closed {
+		s.mu.Unlock()
+		return nil, nil, false
+	}
+	s.subscribers[viewer] = struct{}{}
 	s.mu.Unlock()
-	return ch, func() {
+	return viewer, func() {
 		s.mu.Lock()
-		delete(s.subscribers, ch)
+		delete(s.subscribers, viewer)
 		empty := len(s.subscribers) == 0
+		if empty {
+			s.closed = true
+		}
 		cancel := s.cancel
 		s.mu.Unlock()
 		if empty && cancel != nil {
 			cancel()
 		}
-	}
+	}, true
 }
 
 // broadcast sends a chunk to all subscribers; drops slow ones.
@@ -87,12 +103,23 @@ func (s *cameraStream) broadcast(chunk []byte) {
 	cp := make([]byte, len(chunk))
 	copy(cp, chunk)
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for ch := range s.subscribers {
+	for viewer := range s.subscribers {
 		select {
-		case ch <- cp:
+		case viewer.chunks <- cp:
 		default:
+			close(viewer.evicted)
+			close(viewer.chunks)
+			delete(s.subscribers, viewer)
 		}
+	}
+	empty := len(s.subscribers) == 0
+	if empty {
+		s.closed = true
+	}
+	cancel := s.cancel
+	s.mu.Unlock()
+	if empty && cancel != nil {
+		cancel()
 	}
 }
 
@@ -100,9 +127,10 @@ func (s *cameraStream) broadcast(chunk []byte) {
 func (s *cameraStream) closeAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for ch := range s.subscribers {
-		close(ch)
-		delete(s.subscribers, ch)
+	s.closed = true
+	for viewer := range s.subscribers {
+		close(viewer.chunks)
+		delete(s.subscribers, viewer)
 	}
 }
 
@@ -116,53 +144,48 @@ var manager = &streamManager{
 	streams: make(map[int]*cameraStream),
 }
 
-// getOrStart returns the active cameraStream for camIdx, starting the upstream
-// pump if there isn't one already.
-func (m *streamManager) getOrStart(camIdx int, cam Camera) *cameraStream {
+// getOrStart subscribes to the active cameraStream for camIdx, starting the
+// upstream pump after registration if there isn't one already.
+func (m *streamManager) getOrStart(camIdx int, cam Camera) (*cameraStream, *subscriber, func()) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if s, ok := m.streams[camIdx]; ok {
-		return s
+		if ch, unsub, active := s.subscribe(); active {
+			return s, ch, unsub
+		}
 	}
 
 	s := newCameraStream()
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	ch, unsub, _ := s.subscribe()
 	m.streams[camIdx] = s
 
 	go func() {
+		defer cancel()
 		defer func() {
 			m.mu.Lock()
-			delete(m.streams, camIdx)
+			if m.streams[camIdx] == s {
+				delete(m.streams, camIdx)
+			}
 			m.mu.Unlock()
 			s.closeAll()
-			log.Printf("streamManager: upstream closed for camera %d (%q)", camIdx, cam.Name)
+			logCameraClosed(camIdx, cam.Name)
 		}()
 
-		log.Printf("streamManager: opening upstream for camera %d (%q)", camIdx, cam.Name)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		s.mu.Lock()
-		s.cancel = cancel
-		s.mu.Unlock()
-
-		req, err := http.NewRequestWithContext(ctx, "GET", cam.URL, nil)
-		if err != nil {
-			cancel()
-			log.Printf("streamManager: bad URL for camera %d (%q): %v", camIdx, cam.Name, err)
-			return
+		logCameraOpening(camIdx, cam.Name)
+		resp, err := openCamera(ctx, cam)
+		s.startupErr = err
+		if err == nil {
+			s.contentType = resp.Header.Get("Content-Type")
 		}
-
-		resp, err := cameraClient.Do(req)
+		close(s.ready)
 		if err != nil {
-			log.Printf("streamManager: could not connect to camera %d (%q): %v", camIdx, cam.Name, err)
+			logCameraOpenFailed(camIdx, cam.Name, err)
 			return
 		}
 		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			log.Printf("streamManager: camera %d (%q) returned status %d", camIdx, cam.Name, resp.StatusCode)
-			return
-		}
 
 		buf := make([]byte, 32*1024)
 		for {
@@ -171,17 +194,42 @@ func (m *streamManager) getOrStart(camIdx int, cam Camera) *cameraStream {
 				s.broadcast(buf[:n])
 			}
 			if readErr != nil {
-				if readErr != io.EOF {
-					log.Printf("streamManager: read ended for camera %d (%q): %v", camIdx, cam.Name, readErr)
+				if readErr != io.EOF && ctx.Err() == nil {
+					logCameraReadFailed(camIdx, cam.Name, readErr)
 				}
 				return
 			}
 		}
 	}()
 
-	return s
+	return s, ch, unsub
 }
 
+func openCamera(ctx context.Context, cam Camera) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cam.URL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid camera URL: %w", cameraErrorCause(err))
+	}
+	resp, err := cameraClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("camera connection failed: %w", cameraErrorCause(err))
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("camera returned HTTP %d; expected HTTP 200", resp.StatusCode)
+	}
+	contentType := resp.Header.Get("Content-Type")
+	mediaType, parameters, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		resp.Body.Close()
+		return nil, fmt.Errorf("camera returned invalid Content-Type %q; expected multipart/x-mixed-replace with a boundary: %w", contentType, err)
+	}
+	if mediaType != "multipart/x-mixed-replace" || parameters["boundary"] == "" {
+		resp.Body.Close()
+		return nil, fmt.Errorf("camera returned Content-Type %q; expected multipart/x-mixed-replace with a boundary", contentType)
+	}
+	return resp, nil
+}
 
 func loadCameras(filename string) ([]Camera, error) {
 	data, err := os.ReadFile(filename)
@@ -198,7 +246,7 @@ func loadCameras(filename string) ([]Camera, error) {
 		}
 		u, parseErr := url.Parse(cam.URL)
 		if parseErr != nil {
-			return nil, fmt.Errorf("loadCameras: camera %d (%q) has invalid URL %q: %w", i, cam.Name, cam.URL, parseErr)
+			return nil, fmt.Errorf("loadCameras: camera %d (%q) has invalid URL: %w", i, cam.Name, cameraErrorCause(parseErr))
 		}
 		if u.Scheme != "http" && u.Scheme != "https" {
 			return nil, fmt.Errorf("loadCameras: camera %d (%q) has disallowed scheme %q (only http/https allowed)", i, cam.Name, u.Scheme)
@@ -214,7 +262,7 @@ func makeAuthed(handlerFunc func(*Context, string, string, string)) http.Handler
 		id := r.Header.Get("authentigate-id")
 		baseUrl := r.Header.Get("authentigate-base-url")
 		topUrl := r.Header.Get("authentigate-top-url")
-		log.Printf("cameraview: user=%q baseUrl=%q", id, baseUrl)
+		logCameraPageRequest(id)
 		handlerFunc(c, id, baseUrl, topUrl)
 	}
 }
@@ -223,8 +271,7 @@ func makeAuthed(handlerFunc func(*Context, string, string, string)) http.Handler
 func makeAuthedStream(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("authentigate-id")
-		baseUrl := r.Header.Get("authentigate-base-url")
-		log.Printf("cameraview stream: user=%q baseUrl=%q", id, baseUrl)
+		logCameraStreamRequest(id)
 		h(w, r)
 	}
 }
@@ -273,17 +320,26 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cam := cameras[camIdx]
-	stream := manager.getOrStart(camIdx, cam)
-
-	ch, unsub := stream.subscribe()
-	defer unsub()
+	stream, viewer, unsub := manager.getOrStart(camIdx, cam)
+	stopWatching := watchViewer(w, r.Context(), viewer.evicted, camIdx, cam.Name)
+	defer func() {
+		stopWatching()
+		unsub()
+	}()
 
 	flusher, canFlush := w.(http.Flusher)
 	clientCtx := r.Context()
 
-	// We don't know the Content-Type until the upstream sends headers, but
-	// since the upstream pump doesn't expose headers we set a sensible default.
-	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+	select {
+	case <-clientCtx.Done():
+		return
+	case <-stream.ready:
+	}
+	if stream.startupErr != nil {
+		http.Error(w, fmt.Sprintf("camera %d (%q): %v", camIdx, cam.Name, stream.startupErr), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", stream.contentType)
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.WriteHeader(http.StatusOK)
@@ -292,7 +348,9 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-clientCtx.Done():
 			return
-		case chunk, ok := <-ch:
+		case <-viewer.evicted:
+			return
+		case chunk, ok := <-viewer.chunks:
 			if !ok {
 				// upstream closed
 				return
@@ -304,6 +362,32 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 			}
 		}
+	}
+}
+
+func watchViewer(w http.ResponseWriter, ctx context.Context, evicted <-chan struct{}, index int, name string) func() {
+	stop := make(chan struct{})
+	stopped := make(chan struct{})
+	controller := http.NewResponseController(w)
+	go func() {
+		defer close(stopped)
+		select {
+		case <-stop:
+			select {
+			case <-evicted:
+			default:
+				return
+			}
+		case <-ctx.Done():
+		case <-evicted:
+		}
+		if err := controller.SetWriteDeadline(time.Now()); err != nil {
+			logCameraViewerDeadlineFailed(index, name, err)
+		}
+	}()
+	return func() {
+		close(stop)
+		<-stopped
 	}
 }
 

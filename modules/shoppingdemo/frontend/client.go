@@ -22,15 +22,7 @@ type Coupon struct {
 }
 
 func dumpResponse(resp *resty.Response) {
-	fmt.Printf("\nResponse Status Code: %v", resp.StatusCode())
-	fmt.Printf("\nResponse Status: %v", resp.Status())
-	fmt.Printf("\nResponse Body: %v", resp)
-	fmt.Printf("\nResponse Time: %v", resp.Time())
-	fmt.Printf("\nResponse Received At: %v", resp.ReceivedAt())
-
-	var basket map[string]int
-	json.Unmarshal(resp.Body(), &basket)
-	fmt.Printf("Basket: %v\n", basket)
+	logBackendResponse(resp)
 }
 
 type User struct {
@@ -229,12 +221,11 @@ func checkout(c *gin.Context, id string, token string) {
 
 func purchase(c *gin.Context, id string, token string) {
 	coupon, _ := c.GetQuery("coupon")
-	fmt.Printf("Coupon id: %v\n", coupon)
 
 	total := 0.0
 	order := map[string]float64{}
 	resp := rest(c, shopService, "purchase?coupon="+coupon, &order)
-	fmt.Printf("%+v\n", resp)
+	dumpResponse(resp)
 
 	body := "<h2>Order</h2>"
 
@@ -249,7 +240,8 @@ func purchase(c *gin.Context, id string, token string) {
 }
 
 func main() {
-	router := gin.Default()
+	router := gin.New()
+	router.Use(frontendRequestLog())
 	serveDemo(router, "/fe/api/v1/")
 	router.Run("127.0.0.1:8099")
 }

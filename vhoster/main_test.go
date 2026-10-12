@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 )
 
@@ -52,10 +53,11 @@ func TestConfigLoad(t *testing.T) {
 
 // TestFormatCLF tests the Common Log Format formatting
 func TestFormatCLF(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test/path", nil)
+	req := httptest.NewRequest("GET", "/secure/private-session/test/path?code=private-code", nil)
+	req.Host = "gateway.example"
 	req.RemoteAddr = "192.168.1.1:12345"
 	req.Header.Set("User-Agent", "TestAgent/1.0")
-	req.Header.Set("Referer", "http://example.com")
+	req.Header.Set("Referer", "http://example.com/private-referrer")
 
 	c := &MyContext{
 		Request: *req,
@@ -77,16 +79,16 @@ func TestFormatCLF(t *testing.T) {
 		t.Error("Log line should contain HTTP method")
 	}
 
-	if !bytes.Contains([]byte(logLine), []byte("/test/path")) {
-		t.Error("Log line should contain request path")
+	if !bytes.Contains([]byte(logLine), []byte("host:gateway.example")) {
+		t.Error("Log line should contain the requested host")
 	}
 
 	if !bytes.Contains([]byte(logLine), []byte("200")) {
 		t.Error("Log line should contain response code")
 	}
 
-	if !bytes.Contains([]byte(logLine), []byte("TestAgent/1.0")) {
-		t.Error("Log line should contain user agent")
+	if bytes.Contains([]byte(logLine), []byte("TestAgent/1.0")) || bytes.Contains([]byte(logLine), []byte("private-")) {
+		t.Error("Log line must not contain user-agent, URL, query, or referrer credentials")
 	}
 }
 
@@ -772,9 +774,9 @@ func TestConcurrentRequests(t *testing.T) {
 	// Set up accessLog to avoid nil pointer
 	setupTestAccessLog(t)
 
-	requestCount := 0
+	var requestCount atomic.Int32
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		requestCount.Add(1)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}))
@@ -815,6 +817,9 @@ func TestConcurrentRequests(t *testing.T) {
 
 	if successCount != 10 {
 		t.Errorf("Expected 10 successful requests, got %d", successCount)
+	}
+	if requestCount.Load() != 10 {
+		t.Errorf("Expected 10 backend requests, got %d", requestCount.Load())
 	}
 }
 
