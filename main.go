@@ -10,10 +10,8 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -121,7 +119,6 @@ var develop = false
 var accessLog io.Writer
 var db_prefix string = "authentigate_"
 var providerSecrets map[string]map[string]string
-var r *rand.Rand
 var oauthEnabled = false
 
 // Turn errors into panics so we can catch them in the otp level handler and log them
@@ -133,7 +130,7 @@ func check(e error) {
 
 // Create a log message in combined log format
 func format_clf(c *Context, id, responseCode, responseSize string) string {
-	return fmt.Sprintf("%v - %v [%v] \"%v %v %v\" %v %v \"%v\" \"%v\"", c.ClientIP(), id, time.Now(), c.Request.Method, c.Request.RequestURI, c.Request.Proto, responseCode, responseSize, c.Request.Referer(), c.Request.UserAgent())
+	return fmt.Sprintf("%v - %v [%v] \"%v %v %v\" %v %v \"-\" \"-\"", c.ClientIP(), id, time.Now(), c.Request.Method, requestLogRoute(c), c.Request.Proto, responseCode, responseSize)
 }
 
 func makeSecureZoneUrl(token string, siteUrl string) string {
@@ -150,9 +147,7 @@ func makeAuthedRelay(handlerFunc func(*Context, string, string, *Redirect, bool)
 		c := &Context{Writer: w, Request: r}
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("Failure while processing %v: %v", c.Request.URL, r)
-				log.Printf("Failure while processing %v: %v", c.Request.URL, r)
-				debug.PrintStack()
+				logRequestFailure(c, fmt.Sprint(r))
 				c.Status(500)
 				displayPage(c, "", "files/BackendFailure.html", nil, nil)
 			}
@@ -169,18 +164,13 @@ func makeAuthedRelay(handlerFunc func(*Context, string, string, *Redirect, bool)
 
 		token, err := c.Cookie("AuthentigateSessionToken")
 		useCookie := true
-		if err == nil {
-			log.Println("Found authentigate cookie: ", token)
-		} else {
-			log.Println("Cookie not found, using token")
-			log.Println(err)
+		if err != nil {
 			token = c.Param("token")
 			useCookie = false
 		}
 		id := sessionTokenToId(token)
-		log.Printf("session: %v id: %v\n", token, id)
 		if id == "" {
-			log.Printf("Login failure for token: '%v'", token)
+			logSessionRejected(c)
 			frontPageHandler(c)
 		} else {
 			//if useCookie {
@@ -237,7 +227,6 @@ func main() {
 		baseUrl = "http://localhost:8000/secure/"
 	}
 
-	r = rand.New(rand.NewSource(time.Now().UnixNano()))
 	mux := http.NewServeMux()
 
 	// Static files - register first to avoid conflicts
@@ -272,7 +261,7 @@ func main() {
 
 	for _, loopPtr := range config.Redirects {
 		relay := loopPtr
-		fmt.Printf("Adding route from %v, to %v\n", relay.From, relay.To)
+		logConfiguredRoute(relay)
 		// Convert gin-style :param to mux-style {param}
 		// and gin-style *api to mux-style {api...}
 		pattern := relay.From
@@ -371,9 +360,11 @@ func main() {
 }
 
 func updateUserHandler(c *Context, id string, token string, relay *Redirect, useCookie bool) {
-	user := LoadUser(id)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	user := currentManagementUserLocked(c, id, token)
 	if user == nil {
-		panic("User not found for sessionid:" + token + "!")
+		return
 	}
 
 	r := c.Request
@@ -387,8 +378,9 @@ func updateUserHandler(c *Context, id string, token string, relay *Redirect, use
 		displayPage(c, "", "files/showToken.html", nil, map[string]string{"UPDATEUSERURL": "/manage/" + token + "/updateUser"})
 		return
 	}
-	//FIXME race condition here
-	userExists := b.Exists("userNames", username)
+	var existingID string
+	userExists, err := b.UserNames.Get(username, &existingID)
+	check(err)
 	if userExists {
 		displayPage(c, "", "files/showToken.html", nil, map[string]string{"UPDATEUSERURL": "/manage/" + token + "/updateUser", "ERROR": "Username already exists"})
 		return
@@ -398,7 +390,7 @@ func updateUserHandler(c *Context, id string, token string, relay *Redirect, use
 	if user.UserName != "" {
 		user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
 	}
-	SaveUser(user)
+	saveUserLocked(user)
 	png := user.QRcode
 	//Save the png to a temporary directory then server it
 	tmpDir := "qrcodes"
@@ -557,15 +549,16 @@ func frontPageHandler(c *Context) {
 
 // Show the user their revocable token
 func tokenShowHandler(c *Context, id string, token string, relay *Redirect, useCookie bool) {
-
-	user := LoadUser(id)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	user := currentManagementUserLocked(c, id, token)
 	if user == nil {
-		panic("User not found for sessionid:" + token + "!")
+		return
 	}
 
 	if user.UserName != "" {
 		user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
-		SaveUser(user)
+		saveUserLocked(user)
 	}
 	png := user.QRcode
 	//Save the png to a temporary directory then server it
@@ -603,8 +596,14 @@ func setupNewUser(c *Context, foreignID string, token string) string {
 }
 
 func newTokenHandler(c *Context, id string, token string, relay *Redirect, useCookie bool) {
-	sessionToken := newToken(id)
-	displayPage(c, sessionToken, "files/showToken.html", nil, nil)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	user := currentManagementUserLocked(c, id, token)
+	if user == nil {
+		return
+	}
+	sessionToken := rotateUserTokenLocked(user)
+	displayUserTokenPage(c, user, map[string]string{"AuthentigateSessionToken": sessionToken})
 }
 
 // Display a html file, inserting the revocable session token as needed
@@ -618,7 +617,6 @@ func displayPage(c *Context, token, filename string, cookies map[string]string, 
 		template = templateSet(template, k, v)
 	}
 	if cookies != nil {
-		fmt.Printf("Setting cookies %v\n", cookies)
 		for cookieName, cookieValue := range cookies {
 			http.SetCookie(c.Writer, &http.Cookie{Name: cookieName, Value: cookieValue, Path: "/"})
 		}
@@ -630,7 +628,7 @@ func displayPage(c *Context, token, filename string, cookies map[string]string, 
 func relayPutHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 
 	api := "/" + c.Param("api")
-	log.Printf("PUT api : %v with id %v\n", api, id)
+	logRelayRequest(c, id)
 	bodyData, _ := ioutil.ReadAll(c.Request.Body)
 	client := &http.Client{}
 	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
@@ -664,8 +662,6 @@ func relayPutHandler(c *Context, id, token string, relay *Redirect, useCookie bo
 
 	req.Body = io.NopCloser(bytes.NewReader(bodyData))
 
-	log.Printf("PUT %v\n", req.URL)
-
 	//Do it
 	resp, err := client.Do(req)
 	check(err)
@@ -678,7 +674,6 @@ func relayPutHandler(c *Context, id, token string, relay *Redirect, useCookie bo
 	c.Status(resp.StatusCode)
 	//Write the result
 	c.Writer.Write(respData)
-	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
 
@@ -686,8 +681,7 @@ func relayPutHandler(c *Context, id, token string, relay *Redirect, useCookie bo
 func relayPostHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 
 	api := "/" + c.Param("api")
-	log.Printf("POST api : %v with id %v\n", api, id)
-	fmt.Printf("POST api : %v with id %v\n", api, id)
+	logRelayRequest(c, id)
 	bodyData, err := ioutil.ReadAll(c.Request.Body)
 	if err != nil {
 		panic(err)
@@ -703,13 +697,8 @@ func relayPostHandler(c *Context, id, token string, relay *Redirect, useCookie b
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
 
-	CopyHeaders := relay.CopyHeaders
-	log.Printf("Forwarding headers %v\n", CopyHeaders)
-	log.Printf("Request %+v\n", c)
-	log.Printf("Request body %v\n", string(bodyData))
 	for k, _ := range c.Request.Header {
 		req.Header.Add(k, c.Request.Header.Get(k))
-		log.Printf("Copyheader: %v, %v\n", k, c.Request.Header.Get(k))
 	}
 
 	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
@@ -720,10 +709,7 @@ func relayPostHandler(c *Context, id, token string, relay *Redirect, useCookie b
 	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
 	req.Header.Add("X-Forwarded-Host", c.Request.Host)
 
-	log.Printf("Sending Request %+v\n", req)
 	req.Body = io.NopCloser(bytes.NewReader(bodyData))
-
-	log.Printf("POST %v\n", req.URL)
 
 	//Do it
 	resp, err := client.Do(req)
@@ -740,15 +726,13 @@ func relayPostHandler(c *Context, id, token string, relay *Redirect, useCookie b
 
 		//Write the result
 		c.Writer.Write(respData)
-		log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
 		accessLog.Write([]byte(format_clf(
 			c,
 			id,
 			fmt.Sprintf("%v", resp.StatusCode),
 			fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 	} else {
-		log.Printf("redirect POST api %v, %v, %v\n", id, api, req.URL)
-		log.Printf("redirect failed %+v\n", resp)
+		logRelayFailure(c, err)
 
 	}
 }
@@ -800,7 +784,7 @@ func relayStreamHandler(c *Context, id, token string, relay *Redirect, useCookie
 		if n > 0 {
 			if _, writeErr := c.Writer.Write(buf[:n]); writeErr != nil {
 				if ctx.Err() == nil {
-					log.Printf("relayStreamHandler: write failed for %v: %v", req.URL, writeErr)
+					logStreamWriteFailure(c, writeErr)
 				}
 				return
 			}
@@ -810,7 +794,7 @@ func relayStreamHandler(c *Context, id, token string, relay *Redirect, useCookie
 		}
 		if readErr != nil {
 			if readErr != io.EOF && ctx.Err() == nil {
-				log.Printf("relayStreamHandler: read ended for %v: %v", req.URL, readErr)
+				logStreamReadFailure(c, readErr)
 			}
 			return
 		}
@@ -850,19 +834,18 @@ func relayGetHandler(c *Context, id, token string, relay *Redirect, useCookie bo
 
 	upgradeH := c.Request.Header.Get("upgrade")
 	if upgradeH == "websocket" {
-		log.Printf("upgrade GET api %v, %v, %v\n", id, api, req.URL)
+		logRelayRequest(c, id)
 		upgradeAndHandle(c, req)
 		return
 	}
 
-	log.Printf("redirect GET api %v, %v, %v\n", id, api, req.URL)
+	logRelayRequest(c, id)
 	resp, err := client.Do(req)
 	check(err)
 
 	// If the backend is sending a streaming response (e.g. MJPEG), proxy it
 	// as a live stream rather than buffering the whole body.
 	if isStreamingContentType(resp.Header.Get("Content-Type")) {
-		log.Printf("relayGetHandler: streaming response for %v", req.URL)
 		relayStreamHandler(c, id, token, relay, useCookie, req, resp)
 		accessLog.Write([]byte(format_clf(c, id, "200", "-") + "\n"))
 		return
@@ -929,7 +912,8 @@ func redirectHandler(c *Context) {
 
 	// Check for errors (usually driver not valid)
 	if err != nil {
-		c.Writer.Write([]byte("Error: " + err.Error()))
+		logOAuthFailure(c, err)
+		http.Error(c.Writer, "OAuth authorization could not be started", http.StatusBadGateway)
 		return
 	}
 
@@ -956,10 +940,9 @@ func isNewUser(id string) bool {
 func testOTPVerify(secret string) {
 	totp := gotp.NewDefaultTOTP(secret)
 	otpValue := totp.Now()
-	fmt.Println("current one-time password is:", otpValue)
 
 	ok := totp.Verify(otpValue, time.Now().Unix())
-	fmt.Println("verify OTP success:", ok)
+	logOTPVerification(ok)
 }
 
 func generateTOTPWithSecret(secret, username string) []byte {
@@ -967,10 +950,8 @@ func generateTOTPWithSecret(secret, username string) []byte {
 		panic("Username must be set")
 	}
 	totp := gotp.NewDefaultTOTP(secret)
-	fmt.Println("current one-time password is:", totp.Now())
 
 	uri := totp.ProvisioningUri(username, "Authentigate")
-	fmt.Println(uri)
 	q, err := qrcode.New(uri, qrcode.High)
 	if err != nil {
 		panic(err)
@@ -988,26 +969,15 @@ func generateTOTPWithSecret(secret, username string) []byte {
 //Generate a new revocable token
 
 func newToken(id string) string {
-	sessionToken := fmt.Sprintf("%v", r.Int())
-	log.Printf("Setting id:token %v:%v\n", id, sessionToken)
-	b.SessionTokens.Set(sessionToken, id)
-
-	user := LoadUser(id)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	user := loadUserLocked(id)
 
 	if user == nil {
 		panic("User not found")
 	}
 
-	user.Token = sessionToken
-
-	if user.OtpSecret == "" {
-		user.OtpSecret = gotp.RandomSecret(16)
-	}
-	if user.UserName != "" {
-		user.QRcode = generateTOTPWithSecret(user.OtpSecret, user.UserName)
-	}
-	SaveUser(user)
-	return sessionToken
+	return rotateUserTokenLocked(user)
 }
 
 // Handle callback of providers - google, facebook etc
@@ -1024,12 +994,10 @@ func callbackHandler(c *Context) {
 	// Handle callback and check for errors
 	foreignUser, _, err := gocial.Handle(state, code)
 	if err != nil {
-		c.Writer.Write([]byte("Error: " + err.Error()))
+		logOAuthFailure(c, err)
+		http.Error(c.Writer, "OAuth authorization could not be completed", http.StatusBadGateway)
 		return
 	}
-
-	log.Printf("User: %#v\n\n", foreignUser)
-	log.Printf("User ID: %#v\n\n", foreignUser.ID)
 
 	foreignID := provider + foreignUser.ID
 	id := foreignIdToId(foreignID)
@@ -1058,7 +1026,6 @@ func developCallbackHandler(c *Context) {
 		} else {
 
 			token = idToSessionToken(id)
-			fmt.Printf("Found user with id 1, token %v\n", token)
 		}
 		if token == "" {
 			token = setupNewUser(c, id, "")
@@ -1077,7 +1044,7 @@ func developCallbackHandler(c *Context) {
 func ngfileserverRelayParameterisedHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 	c.Header("Cache-Control", "no-cache,no-store")
 	api := "/" + c.Param("api")
-	log.Printf("api call: %v with id %v\n", api, id)
+	logRelayRequest(c, id)
 
 	client := &http.Client{}
 	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
@@ -1088,7 +1055,6 @@ func ngfileserverRelayParameterisedHandler(c *Context, id, token string, relay *
 	req, err := http.NewRequest("GET", relay.To+api+params, nil)
 
 	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-	log.Printf("Relaying call to %v\n", req.URL)
 	resp, err := client.Do(req)
 	respData, err := io.ReadAll(resp.Body)
 	check(err)
@@ -1101,7 +1067,7 @@ func ngfileserverRelayParameterisedHandler(c *Context, id, token string, relay *
 func ngfileserverRelayHandler(c *Context, id, token, target string) {
 
 	api := "/" + c.Param("api")
-	log.Printf("api call: %v with id %v\n", api, id)
+	logRelayRequest(c, id)
 
 	completeBaseUrl := fmt.Sprintf("%v%v/ngfileserver/", baseUrl, token)
 
@@ -1112,7 +1078,6 @@ func ngfileserverRelayHandler(c *Context, id, token, target string) {
 	req.Header.Add("authentigate-id", id)
 	req.Header.Add("authentigate-token", token)
 	req.Header.Add("authentigate-base-url", completeBaseUrl)
-	log.Printf("Relaying call to %v\n", req.URL)
 	resp, err := client.Do(req)
 	respData, err := io.ReadAll(resp.Body)
 	check(err)
@@ -1123,7 +1088,7 @@ func ngfileserverRelayHandler(c *Context, id, token, target string) {
 func ngfileserverPutRelayHandler(c *Context, id, token, target string) {
 
 	api := "/" + c.Param("api")
-	log.Printf("api call: %v with id %v\n", api, id)
+	logRelayRequest(c, id)
 
 	completeBaseUrl := fmt.Sprintf("%v%v/ngfileserver/", baseUrl, token)
 
@@ -1141,13 +1106,11 @@ func ngfileserverPutRelayHandler(c *Context, id, token, target string) {
 	}
 	bodyData, _ := ioutil.ReadAll(c.Request.Body)
 	req.Body = io.NopCloser(bytes.NewReader(bodyData))
-	log.Printf("Relaying put call to %v\n", req.URL)
 	resp, err := client.Do(req)
 	respData, err := io.ReadAll(resp.Body)
 	check(err)
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
 	c.Status(resp.StatusCode)
 	c.Writer.Write(respData)
-	log.Printf("redirect PUT api %v, %v, %v\n", id, api, req.URL)
 	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
 }
