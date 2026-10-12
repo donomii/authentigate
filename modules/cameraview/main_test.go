@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -152,7 +155,7 @@ func TestSlowSubscriberDisconnectsWithoutGaps(t *testing.T) {
 		}
 		for received.Len() < sent.Len() {
 			select {
-			case data, open := <-fast:
+			case data, open := <-fast.chunks:
 				if !open {
 					t.Fatal("active viewer was disconnected")
 				}
@@ -168,7 +171,7 @@ func TestSlowSubscriberDisconnectsWithoutGaps(t *testing.T) {
 	var prefix bytes.Buffer
 	for {
 		select {
-		case chunk, open := <-slow:
+		case chunk, open := <-slow.chunks:
 			if !open {
 				if prefix.Len() == 0 || prefix.Len() >= sent.Len() || !bytes.HasPrefix(sent.Bytes(), prefix.Bytes()) {
 					t.Fatalf("slow viewer received %q; expected an uninterrupted prefix of %q", prefix.Bytes(), sent.Bytes())
@@ -189,4 +192,145 @@ func TestSlowSubscriberDisconnectsWithoutGaps(t *testing.T) {
 			t.Fatal("overflowing viewer queue remained open")
 		}
 	}
+}
+
+func TestEvictionInterruptsBlockedHTTPWrite(t *testing.T) {
+	chunks := make(chan []byte)
+	upstreamClosed := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(upstreamClosed)
+		w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=blocked-reader")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case chunk := <-chunks:
+				if _, err := w.Write(chunk); err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+			}
+		}
+	}))
+	defer upstream.Close()
+	oldCameras, oldManager := cameras, manager
+	cameras = []Camera{{Name: "blocked viewer camera", URL: upstream.URL}}
+	manager = &streamManager{streams: make(map[int]*cameraStream)}
+	defer func() { cameras, manager = oldCameras, oldManager }()
+	stream, fast, unsubscribeFast := manager.getOrStart(0, cameras[0])
+	defer unsubscribeFast()
+	handlerDone := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /stream/{id}", func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
+		streamHandler(w, r)
+	})
+	viewer := httptest.NewUnstartedServer(mux)
+	bufferError := make(chan error, 1)
+	viewer.Config.ConnContext = func(ctx context.Context, connection net.Conn) context.Context {
+		bufferError <- connection.(*net.TCPConn).SetWriteBuffer(1024)
+		return ctx
+	}
+	viewer.Start()
+	defer viewer.Close()
+	address, err := net.ResolveTCPAddr("tcp", viewer.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := net.DialTCP("tcp", nil, address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if err := connection.SetReadBuffer(1024); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(connection, "GET /stream/0 HTTP/1.1\r\nHost: localhost\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-bufferError; err != nil {
+		t.Fatal(err)
+	}
+	var slow *subscriber
+	deadline := time.Now().Add(5 * time.Second)
+	for slow == nil && time.Now().Before(deadline) {
+		stream.mu.Lock()
+		for candidate := range stream.subscribers {
+			if candidate != fast {
+				slow = candidate
+			}
+		}
+		stream.mu.Unlock()
+		if slow == nil {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if slow == nil {
+		t.Fatal("TCP viewer did not subscribe")
+	}
+	frame := []byte("--blocked-reader\r\nContent-Type: image/jpeg\r\n\r\n" + strings.Repeat("x", 64*1024) + "\r\n")
+	sendCameraFrame(t, chunks, fast, frame)
+	waitForBlockedCameraWrite(t)
+	for index := 0; index < 16; index++ {
+		select {
+		case <-slow.evicted:
+			select {
+			case <-handlerDone:
+			case <-time.After(5 * time.Second):
+				t.Fatal("evicted viewer remained blocked writing to its TCP connection")
+			}
+			sendCameraFrame(t, chunks, fast, frame)
+			select {
+			case <-upstreamClosed:
+				t.Fatal("evicting the slow viewer closed the active viewer's upstream")
+			default:
+			}
+			return
+		default:
+			sendCameraFrame(t, chunks, fast, frame)
+		}
+	}
+	t.Fatal("TCP viewer's full queue did not trigger eviction")
+}
+
+func sendCameraFrame(t *testing.T, chunks chan<- []byte, viewer *subscriber, expected []byte) {
+	t.Helper()
+	select {
+	case chunks <- expected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream did not accept the next frame")
+	}
+	var received bytes.Buffer
+	for received.Len() < len(expected) {
+		select {
+		case chunk, open := <-viewer.chunks:
+			if !open {
+				t.Fatal("active viewer was disconnected")
+			}
+			received.Write(chunk)
+		case <-time.After(5 * time.Second):
+			t.Fatal("active viewer did not receive the complete frame")
+		}
+	}
+	if !bytes.Equal(received.Bytes(), expected) {
+		t.Fatal("active viewer's frame was corrupted")
+	}
+}
+
+func waitForBlockedCameraWrite(t *testing.T) {
+	t.Helper()
+	stacks := make([]byte, 1024*1024)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		length := runtime.Stack(stacks, true)
+		for _, stack := range strings.Split(string(stacks[:length]), "\n\n") {
+			if strings.Contains(stack, "streamHandler(") && strings.Contains(stack, "net.(*netFD).Write(") {
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("camera handler never blocked writing to the non-reading TCP viewer")
 }

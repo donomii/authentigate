@@ -37,3 +37,7 @@ func logCameraPageRequest(id string) {
 func logCameraStreamRequest(id string) {
 	log.Printf("cameraview stream: user=%q", id)
 }
+
+func logCameraViewerDeadlineFailed(index int, name string, err error) {
+	log.Printf("streamManager: could not interrupt disconnected viewer for camera %d (%q): %v", index, name, err)
+}

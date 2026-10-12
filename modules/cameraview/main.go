@@ -48,14 +48,17 @@ var cameraClient = &http.Client{
 	},
 }
 
-// subscriber is a channel that receives chunks of MJPEG data.
-type subscriber chan []byte
+// subscriber receives MJPEG chunks and an eviction signal when it falls behind.
+type subscriber struct {
+	chunks  chan []byte
+	evicted chan struct{}
+}
 
 // cameraStream manages a single upstream camera connection and fans it out to
 // all active subscribers. It closes the upstream when the last subscriber leaves.
 type cameraStream struct {
 	mu          sync.Mutex
-	subscribers map[subscriber]struct{}
+	subscribers map[*subscriber]struct{}
 	cancel      func() // closes the upstream connection
 	ready       chan struct{}
 	contentType string
@@ -65,24 +68,24 @@ type cameraStream struct {
 
 func newCameraStream() *cameraStream {
 	return &cameraStream{
-		subscribers: make(map[subscriber]struct{}),
+		subscribers: make(map[*subscriber]struct{}),
 		ready:       make(chan struct{}),
 	}
 }
 
-// subscribe adds a subscriber and returns its channel plus an unsubscribe func.
-func (s *cameraStream) subscribe() (subscriber, func(), bool) {
-	ch := make(subscriber, 8)
+// subscribe adds a subscriber and returns it plus an unsubscribe func.
+func (s *cameraStream) subscribe() (*subscriber, func(), bool) {
+	viewer := &subscriber{chunks: make(chan []byte, 8), evicted: make(chan struct{})}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return nil, nil, false
 	}
-	s.subscribers[ch] = struct{}{}
+	s.subscribers[viewer] = struct{}{}
 	s.mu.Unlock()
-	return ch, func() {
+	return viewer, func() {
 		s.mu.Lock()
-		delete(s.subscribers, ch)
+		delete(s.subscribers, viewer)
 		empty := len(s.subscribers) == 0
 		if empty {
 			s.closed = true
@@ -100,12 +103,13 @@ func (s *cameraStream) broadcast(chunk []byte) {
 	cp := make([]byte, len(chunk))
 	copy(cp, chunk)
 	s.mu.Lock()
-	for ch := range s.subscribers {
+	for viewer := range s.subscribers {
 		select {
-		case ch <- cp:
+		case viewer.chunks <- cp:
 		default:
-			close(ch)
-			delete(s.subscribers, ch)
+			close(viewer.evicted)
+			close(viewer.chunks)
+			delete(s.subscribers, viewer)
 		}
 	}
 	empty := len(s.subscribers) == 0
@@ -124,9 +128,9 @@ func (s *cameraStream) closeAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
-	for ch := range s.subscribers {
-		close(ch)
-		delete(s.subscribers, ch)
+	for viewer := range s.subscribers {
+		close(viewer.chunks)
+		delete(s.subscribers, viewer)
 	}
 }
 
@@ -142,7 +146,7 @@ var manager = &streamManager{
 
 // getOrStart subscribes to the active cameraStream for camIdx, starting the
 // upstream pump after registration if there isn't one already.
-func (m *streamManager) getOrStart(camIdx int, cam Camera) (*cameraStream, subscriber, func()) {
+func (m *streamManager) getOrStart(camIdx int, cam Camera) (*cameraStream, *subscriber, func()) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -316,8 +320,12 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cam := cameras[camIdx]
-	stream, ch, unsub := manager.getOrStart(camIdx, cam)
-	defer unsub()
+	stream, viewer, unsub := manager.getOrStart(camIdx, cam)
+	stopWatching := watchViewer(w, r.Context(), viewer.evicted, camIdx, cam.Name)
+	defer func() {
+		stopWatching()
+		unsub()
+	}()
 
 	flusher, canFlush := w.(http.Flusher)
 	clientCtx := r.Context()
@@ -340,7 +348,9 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-clientCtx.Done():
 			return
-		case chunk, ok := <-ch:
+		case <-viewer.evicted:
+			return
+		case chunk, ok := <-viewer.chunks:
 			if !ok {
 				// upstream closed
 				return
@@ -352,6 +362,32 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 			}
 		}
+	}
+}
+
+func watchViewer(w http.ResponseWriter, ctx context.Context, evicted <-chan struct{}, index int, name string) func() {
+	stop := make(chan struct{})
+	stopped := make(chan struct{})
+	controller := http.NewResponseController(w)
+	go func() {
+		defer close(stopped)
+		select {
+		case <-stop:
+			select {
+			case <-evicted:
+			default:
+				return
+			}
+		case <-ctx.Done():
+		case <-evicted:
+		}
+		if err := controller.SetWriteDeadline(time.Now()); err != nil {
+			logCameraViewerDeadlineFailed(index, name, err)
+		}
+	}()
+	return func() {
+		close(stop)
+		<-stopped
 	}
 }
 
