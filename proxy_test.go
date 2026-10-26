@@ -346,3 +346,52 @@ func TestProxyCameraStreamOutlivesBufferedTimeout(t *testing.T) {
 		t.Fatalf("camera stream: status=%d body=%q", response.StatusCode, body)
 	}
 }
+
+func TestProxyPreservesWildcardSeparator(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		fmt.Fprint(writer, request.RequestURI)
+	}))
+	t.Cleanup(upstream.Close)
+	proxy := startAuthenticatedProxy(t, upstream.URL+"/base", Config{}, nil)
+	for _, test := range []struct { path, expected string }{
+		{"/", "/base/"},
+		{"/%2Ffoo", "/base/%2Ffoo"},
+	} {
+		response := requestThroughProxy(t, proxy, http.MethodGet, test.path, nil, nil)
+		if body := readProxyResponse(t, response); response.StatusCode != http.StatusOK || body != test.expected {
+			t.Errorf("path %q: status=%d upstream URI=%q; expected %q", test.path, response.StatusCode, body, test.expected)
+		}
+	}
+}
+
+func TestProxyLogsCompletedCameraStreams(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+				writer.WriteHeader(http.StatusAccepted)
+				fmt.Fprint(writer, "camera-frame")
+			}))
+			t.Cleanup(upstream.Close)
+			proxy := startAuthenticatedProxy(t, upstream.URL, Config{}, nil)
+			logFile := accessLog.(*os.File)
+			if !enabled {
+				accessLog = nil
+			}
+			response := requestThroughProxy(t, proxy, http.MethodGet, "/camera", nil, nil)
+			if body := readProxyResponse(t, response); response.StatusCode != http.StatusAccepted || body != "camera-frame" {
+				t.Fatalf("stream: status=%d body=%q", response.StatusCode, body)
+			}
+			recorded, err := os.ReadFile(logFile.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if enabled && !strings.Contains(string(recorded), " 202 - ") {
+				t.Fatalf("stream completion log is missing upstream status: %q", recorded)
+			}
+			if !enabled && len(recorded) != 0 {
+				t.Fatalf("disabled access log received stream output: %q", recorded)
+			}
+		})
+	}
+}

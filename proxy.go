@@ -62,7 +62,7 @@ func relayURL(c *Context, relay *Redirect) (*url.URL, error) {
 		return nil, fmt.Errorf("route %q requires an absolute HTTP or HTTPS upstream URL", relay.Name)
 	}
 	api := c.Param("api")
-	if api != "" && !strings.HasPrefix(api, "/") {
+	if api != "" || strings.Contains(c.Request.Pattern, "{api...}") || strings.Contains(relay.From, "*api") || strings.Contains(relay.From, "{api...}") {
 		api = "/" + api
 	}
 	if api != "" {
@@ -203,6 +203,9 @@ func relayHTTPHandler(c *Context, id, token string, relay *Redirect, useCookie b
 		timeoutTimer.Stop()
 		removeHopHeaders(resp.Header)
 		relayStreamHandler(c, id, token, relay, useCookie, req, resp)
+		if accessLog != nil {
+			fmt.Fprintln(accessLog, format_clf(c, id, fmt.Sprint(resp.StatusCode), "-"))
+		}
 		return
 	}
 	responseBody, err := readRelayBody(resp.Body)
