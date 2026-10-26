@@ -69,3 +69,11 @@ Each viewer has a bounded queue. A viewer whose queue fills is removed from the 
 ## Local Verification
 
 `build.sh` builds the gateway, demonstration applications, vhoster, and camera module. `test.sh` runs every module's regression tests with race detection and static checks. Regression tests use local HTTP/TLS/WebSocket servers and temporary storage; external OAuth services and cameras are not required.
+
+## Menu and presence demonstrations
+
+The menu uses the gateway identity for stored messages and images. An account with no stored message receives the sentinel none; a one-byte message is retained. Multipart uploads reject missing/invalid image data and excessive sizes. Images are served with their validated media type and browser content sniffing disabled. Account links lead to the gateway's account controls.
+
+Presence rooms store named participants, last update time, external address, and local addresses. Polling retains the room ID. Participant names and addresses are escaped when rendered, and values embedded in script are serialized as JSON. The presence client parses interface addresses with network prefixes, encodes query parameters, bounds request duration, and avoids printing credential URLs.
+
+The menu store uses the maintained Bolt-compatible storage library. The module requires Go 1.25 or later. Menu data files retain their existing format.
