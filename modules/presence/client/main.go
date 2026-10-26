@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -33,17 +34,20 @@ func ip() (ipaddrs []string) {
 			debug.PrintStack()
 		}
 	}()
-	ipaddrs = []string{}
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		log.Println("Could not get local ip address because:", err)
-		//return "IP.address.error"
-		//Fall thorugh to shell script
+		return nil
 	}
 
+	return interfaceIPv4Addresses(addrs)
+}
+
+func interfaceIPv4Addresses(addrs []net.Addr) []string {
+	ipaddrs := []string{}
 	for _, address := range addrs {
 		// check the address type and if it is not a loopback the display it
-		if ipnet := net.ParseIP(address.String()); !ipnet.IsLoopback() {
+		if ipnet, _, err := net.ParseCIDR(address.String()); err == nil && !ipnet.IsLoopback() {
 			if ipnet.To4() != nil {
 				ipaddr1 := ipnet.String()
 				ipaddrs = append(ipaddrs, ipaddr1)
@@ -54,17 +58,7 @@ func ip() (ipaddrs []string) {
 	if len(ipaddrs) > 0 {
 		return ipaddrs
 	}
-	ipaddr_str := goof.Shell("/usr/sbin/ifconfig | /usr/bin/grep 'inet' | /usr/bin/grep -v 127.0.0.1 | /usr/bin/awk '{print $2}'")
-	for _, ipaddr1 := range strings.Split(ipaddr_str, "\n") {
-		if ipaddr1 != "" {
-			ipaddrs = append(ipaddrs, ipaddr1)
-		}
-	}
-	if len(ipaddrs) > 0 {
-		return ipaddrs
-	}
-
-	return []string{"IP.address.not.found"}
+	return ipaddrs
 }
 
 func getWrapper(token, hostname string, ip []string) {
@@ -77,13 +71,19 @@ func getWrapper(token, hostname string, ip []string) {
 	}()
 	//Call server using hostname and ip
 	ips := strings.Join(ip, ",")
-	callStr := fmt.Sprintf("https://entirety.praeceptamachinae.com/secure/"+token+"/presence/users?localip=%v&host=%v", ips, hostname)
-	log.Println(callStr)
-	thing, err := http.Get(callStr)
+	callStr := "https://entirety.praeceptamachinae.com/secure/" + url.PathEscape(token) + "/presence/users?localip=" + url.QueryEscape(ips) + "&host=" + url.QueryEscape(hostname)
+	client := &http.Client{Timeout: 10 * time.Second}
+	thing, err := client.Get(callStr)
 	if err == nil {
 		thing.Body.Close()
+		if thing.StatusCode != http.StatusOK {
+			logPresenceStatus(hostname, thing.StatusCode)
+		}
 	} else {
-		fmt.Println("Error:", err)
+		if requestError, ok := err.(*url.Error); ok {
+			err = requestError.Err
+		}
+		logPresenceFailure(hostname, err)
 	}
 }
 
