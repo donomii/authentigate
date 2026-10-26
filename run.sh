@@ -1,7 +1,9 @@
 #!/bin/sh
 
+set -eu
+cd "$(dirname "$0")"
+
 echo building authentigate
-rm authentigate
 go build .
 echo starting authentigate
 ./authentigate -develop &
