@@ -1,15 +1,15 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -20,7 +20,7 @@ import (
 //The url of the top of the authenticated part of your website
 
 var develop = false
-var accessLog *bufio.Writer
+var accessLog *log.Logger
 var db_prefix string = "authentigate_"
 var providerSecrets map[string]map[string]string
 var r *rand.Rand
@@ -51,56 +51,30 @@ type MyMux struct {
 
 func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := MyContext{Writer: w, Request: *r}
-	logMess := format_clf(&c, "", "???", "???"+"\n")
-	fmt.Println(logMess)
-
-	handled := false
-	var triedRoutes []string
-
-	switch r.Method {
-	case "GET":
-		log.Println("GET method")
-		for _, v := range config.Redirects {
-			triedRoutes = append(triedRoutes, fmt.Sprintf("'%s' (suffix match against '%s')", v.Host, c.Request.Host))
-			if strings.HasSuffix(c.Request.Host, v.Host) {
-				log.Printf("✓ Matched route: %s -> %s\n", v.Host, v.To)
-				relayGetHandler(&c, &v)
-				handled = true
-				return
-			}
-		}
-	case "POST":
-		log.Println("POST method")
-		for _, v := range config.Redirects {
-			triedRoutes = append(triedRoutes, fmt.Sprintf("'%s' (suffix match against '%s')", v.Host, c.Request.Host))
-			if strings.HasSuffix(c.Request.Host, v.Host) {
-				log.Printf("✓ Matched route: %s -> %s\n", v.Host, v.To)
-				relayPostHandler(&c, &v)
-				handled = true
-				return
-			}
-		}
-	case "PUT":
-		log.Println("PUT method")
-		for _, v := range config.Redirects {
-			triedRoutes = append(triedRoutes, fmt.Sprintf("'%s' (suffix match against '%s')", v.Host, c.Request.Host))
-			if strings.HasSuffix(c.Request.Host, v.Host) {
-				log.Printf("✓ Matched route: %s -> %s\n", v.Host, v.To)
-				relayPutHandler(&c, &v)
-				handled = true
-				return
-			}
+	host := requestHostname(r.Host)
+	var route *Redirect
+	for index := range config.Redirects {
+		candidate := &config.Redirects[index]
+		routeHost := requestHostname(candidate.Host)
+		matches := host == routeHost || (net.ParseIP(routeHost) == nil && strings.HasSuffix(host, "."+routeHost))
+		if routeHost != "" && matches && (route == nil || len(routeHost) > len(requestHostname(route.Host))) {
+			route = candidate
 		}
 	}
-
-	if !handled {
-		log.Printf("✗ No route found for host: '%s', method: %s\n", c.Request.Host, r.Method)
-		log.Printf("  Tried routes:\n")
-		for _, route := range triedRoutes {
-			log.Printf("    - %s\n", route)
-		}
-		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("404 - No route configured for this host"))
+	if route == nil {
+		logMissingRoute(&c)
+		http.Error(w, "404 - No route configured for this host", http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		relayGetHandler(&c, route)
+	case http.MethodPost:
+		relayPostHandler(&c, route)
+	case http.MethodPut:
+		relayPutHandler(&c, route)
+	default:
+		relayHandler(&c, route)
 	}
 }
 
@@ -136,8 +110,8 @@ func main() {
 	var configFile, logFile string
 	flag.StringVar(&configFile, "c", "config.json", "Path to config file")
 	flag.StringVar(&configFile, "config", "config.json", "Path to config file")
-	flag.StringVar(&logFile, "l", "accessLog", "Path to access log file")
-	flag.StringVar(&logFile, "log", "accessLog", "Path to access log file")
+	flag.StringVar(&logFile, "l", "", "Path to access log file")
+	flag.StringVar(&logFile, "log", "", "Path to access log file")
 	flag.BoolVar(&develop, "develop", false, "Development mode (no HTTPS, port 3000)")
 	flag.Parse()
 
@@ -148,6 +122,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if logFile == "" {
+		logFile = config.LogFile
+	}
+
 	// Set up access log
 	var err error
 	var f *os.File
@@ -155,9 +133,9 @@ func main() {
 	if envLog := os.Getenv("LOG_FILE"); envLog != "" {
 		logFile = envLog
 	}
-	f, err = os.Create(logFile)
+	f, err = os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	check(err)
-	accessLog = bufio.NewWriterSize(f, 999999)
+	accessLog = log.New(f, "", 0)
 
 	// Print routing configuration on startup
 	fmt.Println("=== vhoster routing configuration ===")
@@ -174,7 +152,7 @@ func main() {
 
 	if develop {
 		fmt.Printf("Starting in development mode on port 3000...\n")
-		http.ListenAndServe(":3000", mux)
+		check(http.ListenAndServe(":3000", mux))
 	} else {
 		fmt.Println("Starting in production mode...")
 		fmt.Println("  HTTP  on :80  (proxying + ACME challenges)")
@@ -210,142 +188,103 @@ func main() {
 
 // Redirect to default microservice, using PUT
 func relayPutHandler(c *MyContext, relay *Redirect) {
-
-	bodyData, _ := io.ReadAll(c.Request.Body)
-	client := &http.Client{}
-	path := c.Request.URL.Path
-
-	req, err := http.NewRequest("PUT", relay.To+path, nil)
-
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
-
-	for k, v := range c.Request.Header {
-		req.Header[k] = v
-	}
-	req.Body = io.NopCloser(bytes.NewReader(bodyData))
-
-	log.Printf("PUT %v\n", req.URL)
-
-	//Do it
-	resp, err := client.Do(req)
-	check(err)
-	respData, err := io.ReadAll(resp.Body)
-	check(err)
-
-	//Copy back the bare minimum needed
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Header("Content-Length", resp.Header.Get("Content-Length"))
-
-	//Write the result
-	c.Writer.Write(respData)
-	log.Printf("redirect PUT  %v\n", req.URL)
-	accessLog.Write([]byte(format_clf(c, "", fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
-	accessLog.Flush()
+	relayHandler(c, relay)
 }
 
 // Redirect to default microservice, using POST
 func relayPostHandler(c *MyContext, relay *Redirect) {
-
-	path := c.Request.URL.Path
-	bodyData, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		panic(err)
-	}
-	client := &http.Client{}
-
-	req, err := http.NewRequest("POST", relay.To+path, nil)
-
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.Request.RemoteAddr)
-
-	CopyHeaders := relay.CopyHeaders
-	log.Printf("Forwarding headers %v\n", CopyHeaders)
-	log.Printf("Request %+v\n", c)
-	log.Printf("Request body %v\n", string(bodyData))
-	for k, _ := range c.Request.Header {
-		req.Header.Add(k, c.Request.Header.Get(k))
-		log.Printf("Copyheader: %v, %v\n", k, c.Request.Header.Get(k))
-	}
-
-	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
-	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
-	req.Header.Add("Host", "entirety.praeceptamachinae.com")
-
-	log.Printf("Sending Request %+v\n", req)
-	req.Body = io.NopCloser(bytes.NewReader(bodyData))
-
-	log.Printf("POST %v\n", req.URL)
-
-	//Do it
-	resp, err := client.Do(req)
-	var respData []byte
-	if resp != nil {
-		if resp.Body != nil {
-			respData, err = io.ReadAll(resp.Body)
-			check(err)
-		}
-
-		for k, h := range resp.Header {
-			c.Header(k, h[0])
-		}
-
-		//Write the result
-		c.Writer.Write(respData)
-		log.Printf("redirect POST %v\n", req.URL)
-		accessLog.Write([]byte(format_clf(
-			c,
-			"",
-			fmt.Sprintf("%v", resp.StatusCode),
-			fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
-	} else {
-		log.Printf("redirect POST %v\n", req.URL)
-		log.Printf("redirect failed %+v\n", resp)
-
-	}
-	accessLog.Flush()
+	relayHandler(c, relay)
 }
 
 // Redirect to default microservice, using GET
 func relayGetHandler(c *MyContext, relay *Redirect) {
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	path := c.Request.URL.RequestURI()
-
-	//TODO make this configurable from a file
-	req, err := http.NewRequest("GET", relay.To+path, nil)
-
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
-
-	for k, v := range c.Request.Header {
-		req.Header[k] = v
-	}
-
-	log.Printf("redirect GET %v to %v\n", c.Request.URL, req.URL)
-	resp, err := client.Do(req)
-	check(err)
-	respData, err := io.ReadAll(resp.Body)
-
-	for k, v := range resp.Header {
-		c.Writer.Header()[k] = v
-	}
-	c.Status(resp.StatusCode)
-	c.Writer.Write(respData)
-	logMess := []byte(format_clf(c, "", fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n")
-	accessLog.Write(logMess)
-	accessLog.Flush()
+	relayHandler(c, relay)
 }
 
 // Quick and dirty HTML templating
 func templateSet(template, before, after string) string {
 	template = strings.Replace(template, before, after, -1)
 	return template
+}
+
+
+func requestHostname(host string) string {
+	if hostname, _, err := net.SplitHostPort(host); err == nil {
+		host = hostname
+	}
+	return strings.ToLower(strings.TrimSuffix(host, "."))
+}
+
+
+func relayHandler(c *MyContext, relay *Redirect) {
+	target, err := parseTarget(relay.To)
+	if err != nil {
+		logInvalidTarget(relay.To, err)
+		http.Error(c.Writer, "Invalid upstream URL", http.StatusBadGateway)
+		return
+	}
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(target)
+			request.SetXForwarded()
+			clientIP, _, splitError := net.SplitHostPort(request.In.RemoteAddr)
+			if splitError != nil {
+				clientIP = request.In.RemoteAddr
+			}
+			request.Out.Header.Set("X-Real-IP", clientIP)
+			port := "80"
+			if request.In.TLS != nil {
+				port = "443"
+			}
+			if _, hostPort, err := net.SplitHostPort(request.In.Host); err == nil {
+				port = hostPort
+			}
+			request.Out.Header.Set("X-Forwarded-Port", port)
+		},
+		ErrorHandler: func(writer http.ResponseWriter, request *http.Request, err error) {
+			logUpstreamError(relay.To, request.Method, err)
+			http.Error(writer, "Upstream request failed", http.StatusBadGateway)
+		},
+	}
+	response := &relayResponseWriter{ResponseWriter: c.Writer, status: http.StatusOK}
+	proxy.ServeHTTP(response, &c.Request)
+	logAccess(c, response.status, response.size)
+}
+
+
+func parseTarget(address string) (*url.URL, error) {
+	target, err := url.Parse(address)
+	if err != nil {
+		return nil, fmt.Errorf("parse upstream URL %q: %w", address, err)
+	}
+	if target.Hostname() == "" || (target.Scheme != "http" && target.Scheme != "https") {
+		return nil, fmt.Errorf("upstream URL %q must use http or https and include a hostname", address)
+	}
+	return target, nil
+}
+
+
+func (writer *relayResponseWriter) WriteHeader(status int) {
+	if status >= 200 || status == http.StatusSwitchingProtocols {
+		writer.status = status
+	}
+	writer.ResponseWriter.WriteHeader(status)
+}
+
+
+func (writer *relayResponseWriter) Write(payload []byte) (int, error) {
+	written, err := writer.ResponseWriter.Write(payload)
+	writer.size += written
+	return written, err
+}
+
+
+func (writer *relayResponseWriter) Unwrap() http.ResponseWriter {
+	return writer.ResponseWriter
+}
+
+type relayResponseWriter struct {
+	http.ResponseWriter
+	status int
+	size int
 }

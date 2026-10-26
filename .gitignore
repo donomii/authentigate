@@ -29,3 +29,12 @@ modules/presence/presence
 
 # Local camera config (contains private network addresses)
 modules/cameraview/cameras.json
+/authentigate
+/modules/menu/menu
+/modules/presence/presence
+/modules/presence/client/client
+/modules/shoppingdemo/restserver/restserver
+/modules/shoppingdemo/restserver/demo
+/modules/shoppingdemo/frontend/frontend
+/modules/shoppingdemo/frontend/client
+/vhoster/vhoster

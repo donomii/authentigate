@@ -14,9 +14,9 @@ This project consists of two main components designed to facilitate running mult
 -   **Configuration**: `config.json` defines routes (`Redirects`), mapping Hostnames to target URLs.
 -   **Logic**:
     -   Listens on port 80/443.
-    -   Matches `Host` header against configured suffixes.
-    -   Manually proxies requests (GET, POST, PUT) to the target backend.
-    -   Copies headers manually from client request to backend and vice versa.
+    -   Matches normalized hostnames exactly or at a subdomain boundary; the longest matching route wins.
+    -   Proxies every HTTP method to the target backend, preserving paths, queries, response statuses, and streaming.
+    -   Forwards end-to-end headers and generates client-address metadata from the incoming connection.
     -   Logs access in Common Log Format (CLF).
 
 ### Authentigate
@@ -33,7 +33,7 @@ This project consists of two main components designed to facilitate running mult
 ## Design Decisions & Quirks
 
 ### Vhoster
-1.  **Manual Proxying**: Uses manual `client.Do(req)` instead of `httputil.ReverseProxy` to maintain precise control over headers and behavior.
+1.  **Proxying**: Preserves end-to-end HTTP behavior, repeated response headers, and streaming. Upstream failures return HTTP 502.
 2.  **Custom Mux**: Implements a `MyMux` struct for host-aware routing logic that standard `http.ServeMux` does not provide.
 3.  **Panic Handling**: Relies on specific panic handling patterns for error management in handling routines.
 
@@ -43,3 +43,22 @@ This project consists of two main components designed to facilitate running mult
 3.  **Manual Session ID Generation**: Generates session tokens using `r.Int()`.
 4.  **Implicit Cookie/Token Logic**: Utilizes a mixed strategy of Cookie-based and URL-param-based tokens to support revocable access.
 5.  **Hardcoded File Paths**: Expects specific file locations (e.g., `files/BackendFailure.html`) relative to the working directory.
+
+## Hostname routing contract
+
+Vhoster reads its own `config.json`. Each redirect requires `Host` and an absolute HTTP or HTTPS `To`; `Name` is descriptive. `HostNames` selects certificate names, and `LogFile` defaults to `accessLog`. `Port` and `CopyHeaders` remain accepted compatibility fields; development listens on port 3000 and end-to-end headers are forwarded.
+
+Hostname matching ignores case, a trailing dot, and the request port. A route matches its exact hostname or a subdomain separated by a dot. IP-address routes match exactly. The most specific matching hostname wins. Unmatched hosts return 404.
+
+All HTTP methods are relayed. Escaped paths, query parameters, response status, repeated headers, and streaming responses are preserved. Redirects are returned without following them. Forwarded client metadata is generated from the incoming connection, and upstream failures return 502. Logging is safe under concurrent requests.
+
+
+The -c or -config flag selects configuration. The -l or -log flag overrides the configured LogFile, and LOG_FILE overrides both. Access logs append to existing files.
+
+## Build and test commands
+
+The root Go module requires Go 1.24 or later. Dependencies are pinned by each module's go.mod and go.sum files.
+
+build.sh builds the root module, vhoster, cameraview, and both shopping modules. test.sh runs every module's tests with race detection and then go vet. Tests use local handlers and temporary stores.
+
+run.sh builds Authentigate, starts it in development mode, and starts the demonstration modules. modules/run.sh builds menu and presence before starting them and the shopping launcher. Launchers stop at a build failure and retain existing binaries until their replacements build successfully. Generated binaries are ignored by Git.
