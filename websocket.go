@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -41,6 +42,10 @@ func newWebSocketRequest(c *Context, target string) (*http.Request, error) {
 }
 
 func upgradeAndHandle(c *Context, req *http.Request) {
+	if !sameWebsocketOrigin(c.Request) {
+		c.String(http.StatusForbidden, "WebSocket origin must match %s", c.Request.Host)
+		return
+	}
 	socket, response, err := websocketClientConn(req, websocket.Subprotocols(c.Request))
 	if response != nil && response.Body != nil {
 		response.Body.Close()
@@ -51,10 +56,11 @@ func upgradeAndHandle(c *Context, req *http.Request) {
 			status = response.StatusCode
 		}
 		logWebSocketUpstreamFailure(req.URL.Host, status, err)
-		http.Error(c.Writer, "WebSocket upstream connection failed", http.StatusBadGateway)
+		c.String(http.StatusBadGateway, "WebSocket connection to upstream %s failed: %v", req.URL.Host, upstreamErrorCause(err))
 		return
 	}
 	defer socket.Close()
+	socket.SetReadLimit(relayBodyLimit())
 
 	upgrader := upGrader
 	upgrader.Subprotocols = nil
@@ -67,6 +73,7 @@ func upgradeAndHandle(c *Context, req *http.Request) {
 		return
 	}
 	defer ws.Close()
+	ws.SetReadLimit(relayBodyLimit())
 
 	clientDone := make(chan struct{})
 	go func() {
@@ -88,6 +95,7 @@ func relayWebSocketMessages(source, destination *websocket.Conn) {
 		if err != nil {
 			return
 		}
+		destination.SetWriteDeadline(time.Now().Add(relayTimeout()))
 		writer, err := destination.NextWriter(messageType)
 		if err != nil {
 			return
@@ -119,6 +127,19 @@ func websocketClientConn(req *http.Request, protocols []string) (*websocket.Conn
 		headers.Del(header)
 	}
 	dialer := *websocket.DefaultDialer
+	dialer.HandshakeTimeout = relayTimeout()
 	dialer.Subprotocols = protocols
 	return dialer.DialContext(req.Context(), upstream.String(), headers)
+}
+
+func sameWebsocketOrigin(request *http.Request) bool {
+	origins := request.Header.Values("Origin")
+	if len(origins) == 0 {
+		return true
+	}
+	if len(origins) != 1 {
+		return false
+	}
+	origin, err := http.NewRequest(http.MethodGet, origins[0], nil)
+	return err == nil && (origin.URL.Scheme == "http" || origin.URL.Scheme == "https") && strings.EqualFold(origin.URL.Host, request.Host)
 }
