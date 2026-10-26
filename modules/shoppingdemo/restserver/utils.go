@@ -28,10 +28,14 @@ func recalculateBasket(oldBasket map[string]int) map[string]int {
 		basket[key] = value
 	}
 
-	for basket["pear"] > 3 && basket["banana"] > 1 {
-		basket["fruit combo set"] = basket["fruit combo set"] + 1
-		basket["pear"] = basket["pear"] - 4
-		basket["banana"] = basket["banana"] - 2
+	combos := basket["pear"] / 4
+	if available := basket["banana"] / 2; available < combos {
+		combos = available
+	}
+	if combos > 0 {
+		basket["fruit combo set"] = basket["fruit combo set"] + combos
+		basket["pear"] = basket["pear"] - 4*combos
+		basket["banana"] = basket["banana"] - 2*combos
 	}
 	return basket
 }
@@ -50,7 +54,7 @@ func calculateOrder(inputBasket map[string]int, coupon string, user *User) map[s
 	if basket["apple"] > 6 {
 		order["apple"] = 0.9 * float64(order["apple"])
 	}
-	if coupon_exists && user.UsedCoupons[coupon] != 1 {
+	if coupon_exists && coupon_details.Expiry.After(time.Now()) && user.UsedCoupons[coupon] != 1 {
 		order[coupon_details.Target] = coupon_details.Discount * float64(order[coupon_details.Target])
 	}
 	return order

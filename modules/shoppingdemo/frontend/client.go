@@ -1,11 +1,14 @@
 package main
 
 import (
+	"crypto/hmac"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
+	"net/http"
+	"net/url"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -47,6 +50,22 @@ type Shop struct {
 
 func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Context) {
 	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		if c.Request.Method == http.MethodPost {
+			if c.GetHeader("authentigate-token") == "" {
+				c.String(http.StatusForbidden, "Shop mutations require a trusted authenticated session token")
+				return
+			}
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+			if err := c.Request.ParseForm(); err != nil {
+				c.String(http.StatusBadRequest, "Could not read shop form: %v", err)
+				return
+			}
+			if !hmac.Equal([]byte(c.PostForm("csrf")), []byte(formToken(c))) {
+				c.String(http.StatusForbidden, "Shop form authorization is missing or invalid; reload the shop page before submitting")
+				return
+			}
+		}
 		id := c.Request.Header.Get("authentigate-id")
 		if id == "" {
 			id = "demoUser"
@@ -62,11 +81,13 @@ func wrapPage(title, body string) string {
 
 func basket(c *gin.Context, id string, token string) {
 	var basket map[string]int
-	rest(c, shopService, "basket", &basket)
+	if rest(c, shopService, "basket", http.MethodGet, &basket) == nil {
+		return
+	}
 
 	body := ""
 	for k, v := range basket {
-		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", k, v)
+		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", html.EscapeString(k), v)
 	}
 
 	c.Writer.Write([]byte(wrapPage("Basket", body)))
@@ -129,23 +150,28 @@ func map2wat2(m map[string]int) wat2 {
 
 func shop(c *gin.Context, id string, token string) {
 	var pricemap map[string]float64
-	resp := rest(c, shopService, "listItems", &pricemap)
+	resp := rest(c, shopService, "listItems", http.MethodGet, &pricemap)
+	if resp == nil {
+		return
+	}
 	body := ""
 	prices := SortWat(pricemap)
 	for _, v := range prices {
-		body = body + fmt.Sprintf("<p><a href=\"addItem?item=%v\">%v</a> ... $%v</p>\n", v.Name, v.Name, v.Price)
+		itemField := `<input type="hidden" name="item" value="` + html.EscapeString(v.Name) + `">`
+		button := fmt.Sprintf("<button type=\"submit\">Add %v</button> ... $%v</form>\n", html.EscapeString(v.Name), v.Price)
+		body = body + `<form method="post" action="addItem">` + formField(c) + itemField + button
 	}
 
-	resp = rest(c, shopService, "basket", nil)
-
 	var basketmap map[string]int
-	json.Unmarshal(resp.Body(), &basketmap)
+	if rest(c, shopService, "basket", http.MethodGet, &basketmap) == nil {
+		return
+	}
 
 	body = body + "<h2>Basket</h2>"
 
 	basket := SortWat2(basketmap)
 	for _, v := range basket {
-		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", v.Name, v.Count)
+		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", html.EscapeString(v.Name), v.Count)
 	}
 
 	body = body + "<h2><a href=checkout>Go to checkout</a></h2>"
@@ -154,72 +180,83 @@ func shop(c *gin.Context, id string, token string) {
 
 func coupon(c *gin.Context, id string, token string) {
 	var coupon Coupon
-	rest(c, shopService, "createCoupon?duration=1000&discount=0.7&target=orange", &coupon)
+	if rest(c, shopService, "createCoupon?duration=1000&discount=0.7&target=orange", http.MethodPost, &coupon) == nil {
+		return
+	}
 
 	body := "<h2>Coupon</h2>"
-	body = body + "<p>Use code " + coupon.Name + " for a " + fmt.Sprintf("%v", coupon.Discount) + " on " + coupon.Target + "</p>"
+	body = body + "<p>Use code " + html.EscapeString(coupon.Name) + " for a " + fmt.Sprintf("%v", coupon.Discount) + " on " + html.EscapeString(coupon.Target) + "</p>"
 	c.Writer.Write([]byte(wrapPage("Shop", body)))
 }
 
-func rest(c *gin.Context, base, endpoint string, data interface{}) *resty.Response {
+func rest(c *gin.Context, base, endpoint, method string, data interface{}) *resty.Response {
 	client := resty.New()
+	client.SetTimeout(10 * time.Second)
 	r := client.R()
 	for _, header := range []string{"authentigate-id", "authentigate-token", "authentigate-base-url", "authentigate-top-url"} {
 		r.SetHeader(header, c.Request.Header.Get(header))
 	}
+	if method == http.MethodPost {
+		r.SetHeader("X-Requested-With", "authentigate-shop")
+	}
 
-	resp, _ := r.Get(base + endpoint)
+	resp, err := r.Execute(method, base + endpoint)
+	if err != nil {
+		c.String(http.StatusBadGateway, "Shop service request failed: %v", err)
+		return nil
+	} else if resp.StatusCode() < http.StatusOK || resp.StatusCode() >= http.StatusMultipleChoices {
+		c.Data(resp.StatusCode(), "application/json", resp.Body())
+		return nil
+	}
 	if data != nil {
-		json.Unmarshal(resp.Body(), data)
+		if err := json.Unmarshal(resp.Body(), data); err != nil {
+			c.String(http.StatusBadGateway, "Shop service returned invalid JSON for %s: %v", endpoint, err)
+			return nil
+		}
 	}
 	return resp
 }
 
 func addItem(c *gin.Context, id string, token string) {
-	item, _ := c.GetQuery("item")
-	item = strings.Replace(item, " ", "%20", -1)
-	rest(c, shopService, "addItem?item="+item+"&amount=1", nil)
+	item := c.PostForm("item")
+	if rest(c, shopService, "addItem?item="+url.QueryEscape(item)+"&amount=1", http.MethodPost, nil) == nil {
+		return
+	}
 	shop(c, id, token)
 }
 
 func checkout(c *gin.Context, id string, token string) {
 
 	var basket map[string]int
-	rest(c, shopService, "basket", &basket)
+	if rest(c, shopService, "basket", http.MethodGet, &basket) == nil {
+		return
+	}
 
 	body := "<h2>Basket</h2>"
 
 	for k, v := range basket {
-		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", k, v)
+		body = body + fmt.Sprintf("<p>%v ... %v</p>\n", html.EscapeString(k), v)
 	}
 	total := 0.0
 	order := map[string]float64{}
-	rest(c, shopService, "checkout", &order)
+	if rest(c, shopService, "checkout", http.MethodGet, &order) == nil {
+		return
+	}
 
-	body = body + "<h2>Order</h2>"
+	body = body + "<h2>Demo order</h2><p>This demonstration records an order without collecting payment.</p>"
 
 	for k, v := range order {
-		body = body + fmt.Sprintf("<p>%v ... $%v</p>\n", k, v)
+		body = body + fmt.Sprintf("<p>%v ... $%v</p>\n", html.EscapeString(k), v)
 		total = total + v
 	}
 	body = body + "<p>Total: " + fmt.Sprintf("%v", total) + "</p>"
 
 	body = body + `<h2>Coupon</h2>
-	<p>Get a discount <a href=coupon>coupon</a></p>
-	<form action="purchase">
-  <label for="fname">Coupon</label>
+	<form method="post" action="coupon">` + formField(c) + `<button type="submit">Create a demo discount coupon</button></form>
+	<form method="post" action="purchase">` + formField(c) + `
+  <label for="coupon">Coupon code (optional)</label>
   <input type="text" id="coupon" name="coupon"><br><br>
-
-<label for="fname">Credit Card</label>
-  <input type="text" id="ccnumber" name="ccnumber"><br><br>
-
-<label for="fname">Name</label>
-  <input type="text" id="ccname" name="ccname"><br><br>
-
-<label for="fname">Expiry</label>
-  <input type="text" id="ccexpiry" name="ccexpiry"><br><br>
-
-  <input type="submit" value="Submit">
+  <input type="submit" value="Record demo order">
 </form>
 `
 
@@ -228,22 +265,25 @@ func checkout(c *gin.Context, id string, token string) {
 }
 
 func purchase(c *gin.Context, id string, token string) {
-	coupon, _ := c.GetQuery("coupon")
+	coupon := c.PostForm("coupon")
 	fmt.Printf("Coupon id: %v\n", coupon)
 
 	total := 0.0
 	order := map[string]float64{}
-	resp := rest(c, shopService, "purchase?coupon="+coupon, &order)
+	resp := rest(c, shopService, "purchase?coupon="+url.QueryEscape(coupon), http.MethodPost, &order)
+	if resp == nil {
+		return
+	}
 	fmt.Printf("%+v\n", resp)
 
-	body := "<h2>Order</h2>"
+	body := "<h2>Demo order</h2>"
 
 	for k, v := range order {
-		body = body + fmt.Sprintf("<p>%v ... $%v</p>\n", k, v)
+		body = body + fmt.Sprintf("<p>%v ... $%v</p>\n", html.EscapeString(k), v)
 		total = total + v
 	}
 	body = body + "<p>Total: " + fmt.Sprintf("%v", total) + "</p>"
-	body = body + "<h2>Purchase confirmed</h2>"
+	body = body + "<h2>Demo order recorded</h2><p>No payment was collected.</p>"
 	body = body + "<a href=shop>Back to start</a>"
 	c.Writer.Write([]byte(wrapPage("Purchase", body)))
 }
@@ -259,7 +299,7 @@ func serveDemo(router *gin.Engine, prefix string) {
 	router.GET(prefix+"basket", makeAuthed(basket))
 	router.GET(prefix+"shop", makeAuthed(shop))
 	router.GET(prefix+"checkout", makeAuthed(checkout))
-	router.GET(prefix+"purchase", makeAuthed(purchase))
-	router.GET(prefix+"addItem", makeAuthed(addItem))
-	router.GET(prefix+"coupon", makeAuthed(coupon))
+	router.POST(prefix+"purchase", makeAuthed(purchase))
+	router.POST(prefix+"addItem", makeAuthed(addItem))
+	router.POST(prefix+"coupon", makeAuthed(coupon))
 }
