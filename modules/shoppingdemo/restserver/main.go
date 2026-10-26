@@ -19,7 +19,8 @@ import (
 // @BasePath /api/v1
 func main() {
 	os.Mkdir("userdata", 0700)
-	router := gin.Default()
+	router := gin.New()
+	router.Use(shopRequestLog())
 	configureRoutes(router, "/shoppr/api/v1/")
 	router.Run("127.0.0.1:8098")
 }

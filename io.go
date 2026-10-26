@@ -9,15 +9,32 @@ import (
 
 // Save user details
 func SaveUser(user *userData_t) {
-	b.Users.Set(user.Id, *user)
-	log.Printf("Saved user %+v\n", user)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	saveUserLocked(user)
+}
+
+func saveUserLocked(user *userData_t) {
+	if err := b.Users.Set(user.Id, *user); err != nil {
+		panic(fmt.Errorf("save user %q: %w", user.Id, err))
+	}
+	logUserSaved(user.Id)
 }
 
 // Load user data
 func LoadUser(id string) *userData_t {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return loadUserLocked(id)
+}
+
+func loadUserLocked(id string) *userData_t {
 	var user userData_t
 	found, err := b.Users.Get(id, &user)
-	if err != nil || !found {
+	if err != nil {
+		panic(fmt.Errorf("load user %q: %w", id, err))
+	}
+	if !found {
 		return nil
 	}
 
@@ -47,13 +64,23 @@ func LoadConfig(file string) *Config {
 
 // Given a session token, find the authentigate id
 func sessionTokenToId(sessionToken string) string {
-	var id string
-	found, err := b.SessionTokens.Get(sessionToken, &id)
-	if !found {
-		log.Println("Could not find sessionToken", sessionToken, "in token store")
+	if sessionToken == "" {
 		return ""
 	}
-	check(err)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var id string
+	found, err := b.SessionTokens.Get(sessionToken, &id)
+	if err != nil {
+		panic(fmt.Errorf("read session token mapping: %s", redactLogSecrets(err.Error(), sessionToken)))
+	}
+	if !found {
+		return ""
+	}
+	user := loadUserLocked(id)
+	if user == nil || user.Token != sessionToken {
+		return ""
+	}
 
 	if id == "1" && !develop {
 		panic("Invalid user id!  Id 1 is reserved for development")
@@ -70,7 +97,6 @@ func foreignIdToId(fid string) string {
 	}
 	check(err)
 
-	log.Printf("id %v from fid %v", id, fid)
 	return id
 }
 
@@ -81,6 +107,5 @@ func idToSessionToken(id string) string {
 	if user == nil {
 		return ""
 	}
-	log.Printf("Token %v found for id %v", user.Token, id)
 	return string(user.Token)
 }

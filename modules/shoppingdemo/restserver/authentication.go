@@ -2,9 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
-	"runtime"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,21 +26,17 @@ func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Cont
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Println("Caught panic in Authhandler", r)
-				buf := make([]byte, 1<<16)
-				runtime.Stack(buf, true)
-				log.Printf("%s", buf)
+				logShopFailure(c, fmt.Sprint(r))
 				NewError(c, http.StatusInternalServerError, "Handler failure!")
 				return
 			}
 		}()
 		id := c.Request.Header.Get("authentigate-id")
-		fmt.Printf("Request headers: %+v\n", c.Request.Header)
 		if id == "" {
 			id = "demoUser"
 		}
 		baseUrl := c.Request.Header.Get("authentigate-base-url")
-		log.Printf("Got real user id: '%v'", id)
+		logShopUser(id)
 		handlerFunc(c, id, baseUrl)
 	}
 }

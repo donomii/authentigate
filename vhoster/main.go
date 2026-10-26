@@ -51,6 +51,12 @@ type MyMux struct {
 
 func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := MyContext{Writer: w, Request: *r}
+	defer func() {
+		if failure := recover(); failure != nil {
+			logProxyFailure(&c, fmt.Sprint(failure))
+			panic(http.ErrAbortHandler)
+		}
+	}()
 	logMess := format_clf(&c, "", "???", "???"+"\n")
 	fmt.Println(logMess)
 
@@ -63,7 +69,7 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for _, v := range config.Redirects {
 			triedRoutes = append(triedRoutes, fmt.Sprintf("'%s' (suffix match against '%s')", v.Host, c.Request.Host))
 			if strings.HasSuffix(c.Request.Host, v.Host) {
-				log.Printf("✓ Matched route: %s -> %s\n", v.Host, v.To)
+				logMatchedRoute(r.Method, v)
 				relayGetHandler(&c, &v)
 				handled = true
 				return
@@ -74,7 +80,7 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for _, v := range config.Redirects {
 			triedRoutes = append(triedRoutes, fmt.Sprintf("'%s' (suffix match against '%s')", v.Host, c.Request.Host))
 			if strings.HasSuffix(c.Request.Host, v.Host) {
-				log.Printf("✓ Matched route: %s -> %s\n", v.Host, v.To)
+				logMatchedRoute(r.Method, v)
 				relayPostHandler(&c, &v)
 				handled = true
 				return
@@ -85,7 +91,7 @@ func (m MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for _, v := range config.Redirects {
 			triedRoutes = append(triedRoutes, fmt.Sprintf("'%s' (suffix match against '%s')", v.Host, c.Request.Host))
 			if strings.HasSuffix(c.Request.Host, v.Host) {
-				log.Printf("✓ Matched route: %s -> %s\n", v.Host, v.To)
+				logMatchedRoute(r.Method, v)
 				relayPutHandler(&c, &v)
 				handled = true
 				return
@@ -113,7 +119,7 @@ func check(e error) {
 
 // Create a log message in combined log format
 func format_clf(c *MyContext, id, responseCode, responseSize string) string {
-	return fmt.Sprintf("%v - %v [%v] \"%v %v %v\" %v %v \"%v\" \"%v\"", c.ClientIP(), id, time.Now(), c.Request.Method, c.Request.RequestURI, c.Request.Proto, responseCode, responseSize, c.Request.Referer(), c.Request.UserAgent())
+	return fmt.Sprintf("%v - %v [%v] \"%v host:%v %v\" %v %v \"-\" \"-\"", c.ClientIP(), id, time.Now(), c.Request.Method, c.Request.Host, c.Request.Proto, responseCode, responseSize)
 	//	127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"
 }
 
@@ -165,7 +171,7 @@ func main() {
 	fmt.Printf("Development mode: %v\n", develop)
 	fmt.Printf("Routes (%d configured):\n", len(config.Redirects))
 	for i, r := range config.Redirects {
-		fmt.Printf("  [%d] Host: %s -> To: %s (Name: %s)\n", i, r.Host, r.To, r.Name)
+		logConfiguredRoute(i, r)
 	}
 	fmt.Println("=====================================")
 
@@ -225,7 +231,6 @@ func relayPutHandler(c *MyContext, relay *Redirect) {
 	}
 	req.Body = io.NopCloser(bytes.NewReader(bodyData))
 
-	log.Printf("PUT %v\n", req.URL)
 
 	//Do it
 	resp, err := client.Do(req)
@@ -239,9 +244,7 @@ func relayPutHandler(c *MyContext, relay *Redirect) {
 
 	//Write the result
 	c.Writer.Write(respData)
-	log.Printf("redirect PUT  %v\n", req.URL)
-	accessLog.Write([]byte(format_clf(c, "", fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
-	accessLog.Flush()
+	writeAccessLog(c, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength))
 }
 
 // Redirect to default microservice, using POST
@@ -259,13 +262,8 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
 	req.Header.Add("X-Real-IP", c.Request.RemoteAddr)
 
-	CopyHeaders := relay.CopyHeaders
-	log.Printf("Forwarding headers %v\n", CopyHeaders)
-	log.Printf("Request %+v\n", c)
-	log.Printf("Request body %v\n", string(bodyData))
 	for k, _ := range c.Request.Header {
 		req.Header.Add(k, c.Request.Header.Get(k))
-		log.Printf("Copyheader: %v, %v\n", k, c.Request.Header.Get(k))
 	}
 
 	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
@@ -274,10 +272,8 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 	req.Header.Add("X-Real-IP", c.RemoteIP())
 	req.Header.Add("Host", "entirety.praeceptamachinae.com")
 
-	log.Printf("Sending Request %+v\n", req)
 	req.Body = io.NopCloser(bytes.NewReader(bodyData))
 
-	log.Printf("POST %v\n", req.URL)
 
 	//Do it
 	resp, err := client.Do(req)
@@ -294,18 +290,11 @@ func relayPostHandler(c *MyContext, relay *Redirect) {
 
 		//Write the result
 		c.Writer.Write(respData)
-		log.Printf("redirect POST %v\n", req.URL)
-		accessLog.Write([]byte(format_clf(
-			c,
-			"",
-			fmt.Sprintf("%v", resp.StatusCode),
-			fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+		writeAccessLog(c, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength))
 	} else {
-		log.Printf("redirect POST %v\n", req.URL)
-		log.Printf("redirect failed %+v\n", resp)
+		logProxyFailure(c, err.Error())
 
 	}
-	accessLog.Flush()
 }
 
 // Redirect to default microservice, using GET
@@ -329,7 +318,6 @@ func relayGetHandler(c *MyContext, relay *Redirect) {
 		req.Header[k] = v
 	}
 
-	log.Printf("redirect GET %v to %v\n", c.Request.URL, req.URL)
 	resp, err := client.Do(req)
 	check(err)
 	respData, err := io.ReadAll(resp.Body)
@@ -339,9 +327,7 @@ func relayGetHandler(c *MyContext, relay *Redirect) {
 	}
 	c.Status(resp.StatusCode)
 	c.Writer.Write(respData)
-	logMess := []byte(format_clf(c, "", fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n")
-	accessLog.Write(logMess)
-	accessLog.Flush()
+	writeAccessLog(c, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength))
 }
 
 // Quick and dirty HTML templating
