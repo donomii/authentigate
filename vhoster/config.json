@@ -4,7 +4,7 @@
 			"Name": "graubl.com",
 			"Host": "graubl.com",
 			"To": "http://[203:87ea:33cc:99b:ad74:d1ae:d956:c865]:8089",
-			"CopyHeaders": ""
+			"CopyHeaders": []
 		},
 
 
@@ -12,14 +12,14 @@
 			"Name": "donomii.com",
 			"Host": "donomii.com",
 			"To": "http://localhost:98",
-			"CopyHeaders": "Authorization"
+			"CopyHeaders": ["Authorization"]
 		},
 
 		{
 			"Name": "earthti.de",
 			"Host": "earthti.de",
 			"To": "http://localhost:98",
-			"CopyHeaders": "Authorization"
+			"CopyHeaders": ["Authorization"]
 		},
 		{
 			"Name": "entirety",

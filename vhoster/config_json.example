@@ -1,9 +1,9 @@
 {
 	"Redirects": [
 		{
-			"From": "/secure/:token/demo/*api",
+			"Host": "www.mydomain.com",
 			"To": "http://localhost:94/",
-			"Tipe": "GET"
+			"CopyHeaders": []
 		}
 	],
 	"Port": 80,
