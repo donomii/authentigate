@@ -43,3 +43,9 @@ This project consists of two main components designed to facilitate running mult
 3.  **Manual Session ID Generation**: Generates session tokens using `r.Int()`.
 4.  **Implicit Cookie/Token Logic**: Utilizes a mixed strategy of Cookie-based and URL-param-based tokens to support revocable access.
 5.  **Hardcoded File Paths**: Expects specific file locations (e.g., `files/BackendFailure.html`) relative to the working directory.
+
+## Shopping demonstration
+
+The shopping applications demonstrate baskets, coupons, and orders; they do not collect card details or process payments. Mutating operations use POST. Frontend forms carry signatures bound to the user and trusted bearer session. Forms remain valid across frontend replicas and restarts; missing sessions, mismatched signatures, and forms from a rotated session are rejected. Backend mutations require the application's request header. Read operations return item, basket, checkout, and coupon information without changing store state.
+
+Coupons have a discount, target item, expiry, and usage state. Expired or used coupons do not discount another order. Listing and deleting coupons perform their named actions, and deletions are saved. Item quantities must be valid positive integers. Order calculation handles combinations without repeated subtraction for large quantities. File-backed updates are serialized and saved atomically; malformed saved data is reported rather than silently replaced with an empty shop or user.

@@ -96,10 +96,23 @@
 			"Tipe": "GET"
 		},
 		{
+			"Name": "shoppr",
+			"From": "/secure/:token/shoppr/*api",
+			"To": "http://localhost:8098/shoppr/api/v1",
+			"CopyHeaders": ["X-Requested-With"],
+			"Tipe": "POST"
+		},
+		{
 			"Name": "fe",
 			"From": "/secure/:token/fe/*api",
 			"To": "http://localhost:8099/fe/api/v1",
 			"Tipe": "GET"
+		},
+		{
+			"Name": "fe",
+			"From": "/secure/:token/fe/*api",
+			"To": "http://localhost:8099/fe/api/v1",
+			"Tipe": "POST"
 		},
 		{
 			"Name": "cameraview",
