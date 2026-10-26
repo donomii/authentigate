@@ -61,4 +61,4 @@ The root Go module requires Go 1.24 or later. Dependencies are pinned by each mo
 
 build.sh builds the root module, vhoster, cameraview, and both shopping modules. test.sh runs every module's tests with race detection and then go vet. Tests use local handlers and temporary stores.
 
-run.sh builds Authentigate, starts it in development mode, and starts the demonstration modules. modules/run.sh builds menu and presence before starting them and the shopping launcher. Launchers stop at a build failure and retain existing binaries until their replacements build successfully. Generated binaries are ignored by Git.
+run.sh builds Authentigate, starts it in development mode, and starts the demonstration modules. modules/run.sh builds menu and presence before starting them and the shopping launcher. The Authentigate, menu/presence, and vhoster launchers stop if their own build fails and retain existing binaries until their replacements build successfully. Generated binaries are ignored by Git.
