@@ -97,7 +97,7 @@ func TestSessionTokenToIdIntegration(t *testing.T) {
 	// We need to manually put it there for this test or use a higher level function.
 	// keyval.go/SaveUser doesn't save to SessionTokens store, newToken does.
 	// So let's manually put it.
-	b.SessionTokens.Set("test-session-token", []byte("user-for-token"))
+	b.SessionTokens.Set("test-session-token", "user-for-token")
 
 	id := sessionTokenToId("test-session-token")
 	if id != "user-for-token" {
@@ -118,7 +118,7 @@ func TestSessionTokenToIdNonexistent(t *testing.T) {
 // TestForeignIdToIdIntegration tests foreign ID lookup
 func TestForeignIdToIdIntegration(t *testing.T) {
 	// Manually set foreign ID mapping
-	b.ForeignIDs.Set("google-user-123", []byte("user-linked-to-google"))
+	b.ForeignIDs.Set("google-user-123", "user-linked-to-google")
 
 	id := foreignIdToId("google-user-123")
 	if id != "user-linked-to-google" {
@@ -187,9 +187,10 @@ func TestLoadConfigInvalidJSON(t *testing.T) {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
-	// This might panic or return a default config depending on implementation
-	// Just verify it doesn't crash unexpectedly
-	cfg := LoadConfig(tmpFile)
-	// If it doesn't panic, we should have some kind of config
-	_ = cfg
+    defer func() {
+        if recover() == nil {
+            t.Fatal("invalid JSON configuration was accepted")
+        }
+    }()
+    LoadConfig(tmpFile)
 }
