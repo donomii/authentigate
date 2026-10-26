@@ -26,8 +26,8 @@ body {
 	Login with your authenticator
   <form action="/totplogin" method="post">
     <div>
-      <p>Username: <input type="text" name="username" value="username"/></p>
-	  <p>Authenticator code: <input type="text" name="code" value="123456"/></p>
+      <p>Username chosen on your account page: <input type="text" name="username" autocomplete="username" required="required"/></p>
+	  <p>Current six-digit code from your authenticator: <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" required="required"/></p>
       <p><input type="submit" value="Submit"/></p>
     </div>
   </form>

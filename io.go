@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -9,15 +10,15 @@ import (
 
 // Save user details
 func SaveUser(user *userData_t) {
-	b.Users.Set(user.Id, *user)
-	log.Printf("Saved user %+v\n", user)
+	check(b.Users.Set(user.Id, *user))
 }
 
 // Load user data
 func LoadUser(id string) *userData_t {
 	var user userData_t
 	found, err := b.Users.Get(id, &user)
-	if err != nil || !found {
+	check(err)
+	if !found {
 		return nil
 	}
 
@@ -47,16 +48,20 @@ func LoadConfig(file string) *Config {
 
 // Given a session token, find the authentigate id
 func sessionTokenToId(sessionToken string) string {
-	var id string
-	found, err := b.SessionTokens.Get(sessionToken, &id)
-	if !found {
-		log.Println("Could not find sessionToken", sessionToken, "in token store")
+	if sessionToken == "" {
 		return ""
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var id string
+	found, err := b.SessionTokens.Get(sessionToken, &id)
 	check(err)
-
-	if id == "1" && !develop {
-		panic("Invalid user id!  Id 1 is reserved for development")
+	if !found {
+		return ""
+	}
+	user := LoadUser(id)
+	if user == nil || user.Id != id || subtle.ConstantTimeCompare([]byte(user.Token), []byte(sessionToken)) != 1 || developmentUserDisabled(user) {
+		return ""
 	}
 	return id
 }
@@ -65,13 +70,11 @@ func sessionTokenToId(sessionToken string) string {
 func foreignIdToId(fid string) string {
 	var id string
 	found, err := b.ForeignIDs.Get(fid, &id)
+	check(err)
 	if !found {
 		return ""
 	}
-	check(err)
-
-	log.Printf("id %v from fid %v", id, fid)
-	return id
+	return string(id)
 }
 
 // Given an authentigate id, load the current session token
@@ -81,6 +84,5 @@ func idToSessionToken(id string) string {
 	if user == nil {
 		return ""
 	}
-	log.Printf("Token %v found for id %v", user.Token, id)
 	return string(user.Token)
 }
