@@ -43,3 +43,18 @@ This project consists of two main components designed to facilitate running mult
 3.  **Manual Session ID Generation**: Generates session tokens using `r.Int()`.
 4.  **Implicit Cookie/Token Logic**: Utilizes a mixed strategy of Cookie-based and URL-param-based tokens to support revocable access.
 5.  **Hardcoded File Paths**: Expects specific file locations (e.g., `files/BackendFailure.html`) relative to the working directory.
+
+## Authenticated request relay
+
+The relay combines the upstream path prefix with the captured API path and preserves escaped path bytes and query parameters. It forwards selected request headers, removes hop-by-hop headers, and replaces identity and client-address metadata with gateway-generated values. The built-in request headers include content type, content disposition, accept, and accept language. Request content length matches the buffered body.
+
+The gateway supplies `authentigate-id`, `authentigate-token`, `authentigate-base-url`, `authentigate-base-token-url`, and `authentigate-top-url`. They identify the authenticated user, current session, cookie-based service URL, token-based service URL, and authenticated site URL, respectively. Client-supplied versions never override these values.
+
+HTTP upstream status codes and end-to-end response headers are preserved, including multiple cookies. Redirects are returned to the caller instead of followed with gateway credentials. Requests exceeding the body limit return 413. Upstream connection/read failures return 502; upstream timeouts return 504. Oversized upstream responses return 502. Request cancellation is propagated to the upstream operation. Response bodies are closed after use.
+
+WebSocket connections preserve the upstream URL query, authenticated headers, and negotiated subprotocol. HTTPS upstreams use secure WebSockets. Browser origins must match the requested gateway host. The upstream handshake succeeds before the client connection is upgraded. Both directions enforce the configured message limit and close when either direction ends.
+
+Access logs append through a direct file writer.
+
+
+The body limit defaults to 33554432 bytes and is configured with MaxBodyBytes in config.json. UpstreamTimeoutSeconds defaults to 30 seconds and bounds buffered HTTP requests, WebSocket handshakes, and WebSocket writes. Multipart camera streams continue after their response headers arrive and end when the upstream or caller closes. A stream is not buffered or limited to the buffered-response timeout. Invalid configuration is rejected at startup; CopyHeaders is an array of header names.
