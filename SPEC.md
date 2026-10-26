@@ -43,3 +43,11 @@ This project consists of two main components designed to facilitate running mult
 3.  **Manual Session ID Generation**: Generates session tokens using `r.Int()`.
 4.  **Implicit Cookie/Token Logic**: Utilizes a mixed strategy of Cookie-based and URL-param-based tokens to support revocable access.
 5.  **Hardcoded File Paths**: Expects specific file locations (e.g., `files/BackendFailure.html`) relative to the working directory.
+
+## Menu and presence demonstrations
+
+The menu uses the gateway identity for stored messages and images. An account with no stored message receives the sentinel none; a one-byte message is retained. Multipart uploads reject missing/invalid image data and excessive sizes. Images are served with their validated media type and browser content sniffing disabled. Account links lead to the gateway's account controls.
+
+Presence rooms store named participants, last update time, external address, and local addresses. Polling retains the room ID. Participant names and addresses are escaped when rendered, and values embedded in script are serialized as JSON. The presence client parses interface addresses with network prefixes, encodes query parameters, bounds request duration, and avoids printing credential URLs.
+
+The menu store uses the maintained Bolt-compatible storage library. The module requires Go 1.25 or later. Menu data files retain their existing format.
