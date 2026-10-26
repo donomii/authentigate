@@ -104,3 +104,19 @@ func logConfiguredRoute(relay Redirect) {
 	}
 	log.Printf("Configured relay: name=%q method=%q upstream=%q", relay.Name, relay.Tipe, target.Host)
 }
+
+func logAuthFailure(c *Context, detail string) {
+	log.Printf("Authentication request failed: method=%q route=%q error=%q", c.Request.Method, requestLogRoute(c), authErrorDetail(c, detail))
+}
+
+func authErrorDetail(c *Context, detail string) string {
+	detail = requestLogDetail(c, detail)
+	for _, provider := range providerSecrets {
+		detail = redactLogSecrets(detail, provider["clientSecret"])
+	}
+	return strings.ReplaceAll(detail, "\n", "\\n")
+}
+
+func logUsernameCleanupFailure(id, username string, err error) {
+	log.Printf("Username changed for user %s, but obsolete username %q index cleanup failed: %v", id, username, err)
+}

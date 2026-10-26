@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"sync"
 
 	"github.com/philippgille/gokv"
@@ -23,24 +24,24 @@ var b *authDB
 func newAuthDB(filename string) (s *authDB, err error, shutdownFunc func()) {
 	s = &authDB{ByNames: make(map[string]gokv.Store)}
 	/*
-	s.db, err = bolt.Open(filename, 0600, &bolt.Options{Timeout: 1 * time.Second})
+		s.db, err = bolt.Open(filename, 0600, &bolt.Options{Timeout: 1 * time.Second})
 
 
-		options := bbolt.DefaultOptions
-		options.Path = db_prefix + "users"
-		options.BucketName = "users"
-		s.Users, err = bbolt.NewStore(options)
-		check(err)
-		options = bbolt.DefaultOptions
-		options.Path = db_prefix + "foreignIDs"
-		options.BucketName = "foreignIDs"
-		s.ForeignIDs, err = bbolt.NewStore(options)
-		check(err)
-		options = bbolt.DefaultOptions
-		options.Path = db_prefix + "sessionTokens"
-		options.BucketName = "sessionTokens"
-		s.SessionTokens, err = bbolt.NewStore(options)
-		check(err)
+			options := bbolt.DefaultOptions
+			options.Path = db_prefix + "users"
+			options.BucketName = "users"
+			s.Users, err = bbolt.NewStore(options)
+			check(err)
+			options = bbolt.DefaultOptions
+			options.Path = db_prefix + "foreignIDs"
+			options.BucketName = "foreignIDs"
+			s.ForeignIDs, err = bbolt.NewStore(options)
+			check(err)
+			options = bbolt.DefaultOptions
+			options.Path = db_prefix + "sessionTokens"
+			options.BucketName = "sessionTokens"
+			s.SessionTokens, err = bbolt.NewStore(options)
+			check(err)
 	*/
 
 	ext := "json"
@@ -82,7 +83,6 @@ func newAuthDB(filename string) (s *authDB, err error, shutdownFunc func()) {
 		defer s.ForeignIDs.Close()
 
 		defer s.SessionTokens.Close()
-
 		defer s.UserNames.Close()
 	}
 	return s, err, shutdownFunc
@@ -92,7 +92,7 @@ func newAuthDB(filename string) (s *authDB, err error, shutdownFunc func()) {
 //
 // To switch to another keyval store, e.g. AWS, we just replace the API calls here
 func (s *authDB) Exists(bucket, key string) bool {
-	var data []byte
+	var data json.RawMessage
 	found, err := s.ByNames[bucket].Get(key, &data)
 	check(err)
 	return found
