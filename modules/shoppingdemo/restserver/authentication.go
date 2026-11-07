@@ -3,9 +3,12 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
+
+var storeLock sync.Mutex
 
 // NewError example
 func NewError(ctx *gin.Context, status int, err string) {
@@ -27,16 +30,22 @@ func makeAuthed(handlerFunc func(*gin.Context, string, string)) func(c *gin.Cont
 		defer func() {
 			if r := recover(); r != nil {
 				logShopFailure(c, fmt.Sprint(r))
-				NewError(c, http.StatusInternalServerError, "Handler failure!")
+				NewError(c, http.StatusInternalServerError, fmt.Sprintf("Handler failure: %v", r))
 				return
 			}
 		}()
+		if c.Request.Method == http.MethodPost && c.GetHeader("X-Requested-With") != "authentigate-shop" {
+			NewError(c, http.StatusForbidden, "State-changing shop requests require the X-Requested-With: authentigate-shop header")
+			return
+		}
 		id := c.Request.Header.Get("authentigate-id")
 		if id == "" {
 			id = "demoUser"
 		}
 		baseUrl := c.Request.Header.Get("authentigate-base-url")
 		logShopUser(id)
+		storeLock.Lock()
+		defer storeLock.Unlock()
 		handlerFunc(c, id, baseUrl)
 	}
 }

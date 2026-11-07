@@ -1,7 +1,15 @@
+securityDefinitions:
+  shopRequest:
+    type: apiKey
+    in: header
+    name: X-Requested-With
+    description: Send authentigate-shop for state-changing requests. This is browser request protection, not user authentication.
 paths:
   /shoppr/api/v1/addItem:
-    get:
+    post:
       operationId: addItem
+      security:
+      - shopRequest: []
       parameters:
       - in: query
         name: Item
@@ -35,8 +43,10 @@ paths:
       tags:
       - basket
   /shoppr/api/v1/createCoupon:
-    get:
+    post:
       operationId: createCoupon
+      security:
+      - shopRequest: []
       parameters:
       - format: int64
         in: query
@@ -56,8 +66,10 @@ paths:
       tags:
       - coupon
   /shoppr/api/v1/deleteCoupon:
-    get:
+    post:
       operationId: deleteCoupon
+      security:
+      - shopRequest: []
       parameters:
       - in: query
         name: Coupon
@@ -87,22 +99,25 @@ paths:
       tags:
       - shop
   /shoppr/api/v1/purchase:
-    get:
+    post:
       operationId: purchase
+      security:
+      - shopRequest: []
       parameters:
       - in: query
         name: Coupon
         type: string
-        x-go-name: CCexpiry
       responses:
         "200":
           $ref: '#/responses/map[string]float64'
-      summary: Purchase basket.
+      summary: Record a demo order without collecting payment.
       tags:
       - basket
   /shoppr/api/v1/reset:
-    get:
+    post:
       operationId: reset
+      security:
+      - shopRequest: []
       responses:
         "200":
           description: ""
