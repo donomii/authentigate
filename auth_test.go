@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -113,7 +114,7 @@ func TestTokenRotationRevokesOldTokenAndUpdatesCookie(t *testing.T) {
 	if updated.OtpSecret != user.OtpSecret {
 		t.Fatal("token rotation changed the enrolled authenticator secret")
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(updated.Token)
+	decoded, err := hex.DecodeString(updated.Token)
 	if err != nil || len(decoded) != 32 {
 		t.Fatalf("expected a 256-bit session token: length=%d error=%v", len(decoded), err)
 	}
