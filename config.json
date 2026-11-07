@@ -4,14 +4,14 @@
 			"Name": "grafana",
 			"From": "/secure/:token/grafana/*api",
 			"To": "http://localhost:9090",
-			"CopyHeaders": "Authorization",
+			"CopyHeaders": ["Authorization"],
 			"Tipe": "GET"
 		},
 		{
 			"Name": "grafana-static",
 			"From": "/static/*api",
 			"To": "http://localhost:9090/static",
-			"CopyHeaders": "Authorization",
+			"CopyHeaders": ["Authorization"],
 			"Tipe": "GET"
 		},
 
@@ -19,7 +19,7 @@
 			"Name": "ngfileserver",
 			"From": "/secure/:token/ngfileserver/*api",
 			"To": "http://localhost:92",
-			"CopyHeaders": "Authorization",
+			"CopyHeaders": ["Authorization"],
 			"Tipe": "GET"
 		},
 		{
@@ -120,5 +120,7 @@
 		"earthti.de",
 		"www.earthti.de"
 	],
+	"MaxBodyBytes": 33554432,
+	"UpstreamTimeoutSeconds": 30,
 	"LogFile": "accessLog"
 }
