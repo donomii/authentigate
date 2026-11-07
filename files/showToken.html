@@ -24,13 +24,19 @@ body {
 
 <body>
   <form action="UPDATEUSERURL" method="post">
+    <input type="hidden" name="csrf" value="TOKEN"/>
     <div>
-      <p>Your secret token is: TOKEN</p>
-      <p>Setup your authenticator with: <img src="QRCODE"/></p>
-      <p>Username: <input type="text" name="username" value="USERNAME"/></p>
+      <p>Your secret token is: TOKEN. This token grants access to your account; keep it private.</p>
+      <p>Choose a username and submit it, then scan this code in your authenticator to enable code-based login: <img src="QRCODE"/></p>
+      <p>Username for authenticator login: <input type="text" name="username" value="USERNAME" required="required"/></p>
       <p><input type="submit" value="Submit"/></p>
     <div>ERROR</div>
     </div>
+  </form>
+  <form action="NEWTOKENURL" method="post">
+    <input type="hidden" name="csrf" value="TOKEN"/>
+    <p>Replace your secret token to revoke the old token and its links. Your authenticator remains valid.</p>
+    <input type="submit" value="Replace secret token"/>
   </form>
 </body>
 </html>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -78,12 +79,8 @@ func sessionTokenToId(sessionToken string) string {
 		return ""
 	}
 	user := loadUserLocked(id)
-	if user == nil || user.Token != sessionToken {
+	if user == nil || user.Id != id || subtle.ConstantTimeCompare([]byte(user.Token), []byte(sessionToken)) != 1 || developmentUserDisabled(user) {
 		return ""
-	}
-
-	if id == "1" && !develop {
-		panic("Invalid user id!  Id 1 is reserved for development")
 	}
 	return id
 }
@@ -92,6 +89,7 @@ func sessionTokenToId(sessionToken string) string {
 func foreignIdToId(fid string) string {
 	var id string
 	found, err := b.ForeignIDs.Get(fid, &id)
+	check(err)
 	if !found {
 		return ""
 	}
