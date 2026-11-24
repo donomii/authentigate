@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	"log"
 	"bytes"
 	"io"
 	"net/http"
@@ -580,18 +580,12 @@ func TestEmptyConfig(t *testing.T) {
 		t.Fatalf("Failed to write test config: %v", err)
 	}
 
-	cfg := LoadConfig(tmpFile)
-	if cfg == nil {
-		t.Fatal("LoadConfig returned nil for empty config")
-	}
-
-	if len(cfg.Redirects) != 0 {
-		t.Errorf("Expected 0 redirects, got %d", len(cfg.Redirects))
-	}
-
-	if cfg.Port != 8080 {
-		t.Errorf("Expected Port 8080, got %d", cfg.Port)
-	}
+	defer func() {
+		if failure := recover(); failure == nil {
+			t.Fatal("empty routing configuration was accepted")
+		}
+	}()
+	LoadConfig(tmpFile)
 }
 
 // TestMultipleRedirects tests config with multiple redirect rules
@@ -675,7 +669,7 @@ func setupTestAccessLog(t *testing.T) {
 	}
 
 	// Use bufio.Writer for accessLog
-	accessLog = bufio.NewWriterSize(f, 999999)
+	accessLog = log.New(f, "", 0)
 
 	t.Cleanup(func() {
 		f.Close()

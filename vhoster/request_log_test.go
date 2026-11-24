@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"io"
 	"log"
@@ -22,7 +21,7 @@ func TestProxyLoggingDoesNotExposeCredentials(t *testing.T) {
 	}
 	log.SetOutput(&logs)
 	os.Stdout = stdout
-	accessLog = bufio.NewWriter(&access)
+	accessLog = log.New(&access, "", 0)
 	t.Cleanup(func() {
 		log.SetOutput(originalLog)
 		os.Stdout = originalStdout
@@ -48,9 +47,6 @@ func TestProxyLoggingDoesNotExposeCredentials(t *testing.T) {
 	}
 	rootRequest := httptest.NewRequest(http.MethodGet, "/", nil)
 	logProxyFailure(&MyContext{Request: *rootRequest}, `Get "http://user:private-password@backend/": connection refused`)
-	if err := accessLog.Flush(); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := stdout.Seek(0, io.SeekStart); err != nil {
 		t.Fatal(err)
 	}

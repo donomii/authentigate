@@ -1,27 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/url"
 	"regexp"
 	"strings"
-	"sync"
 )
 
 var requestLogURL = regexp.MustCompile(`(?i)\bhttps?://[^\s"'<>]+`)
-var accessLogMutex sync.Mutex
-
-func writeAccessLog(c *MyContext, status, size string) {
-	accessLogMutex.Lock()
-	defer accessLogMutex.Unlock()
-	if _, err := accessLog.WriteString(format_clf(c, "", status, size) + "\n"); err != nil {
-		panic(fmt.Errorf("write proxy access log: %w", err))
-	}
-	if err := accessLog.Flush(); err != nil {
-		panic(fmt.Errorf("flush proxy access log: %w", err))
-	}
-}
 
 func upstreamLogHost(target string) string {
 	parsed, err := url.Parse(target)
