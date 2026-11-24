@@ -84,3 +84,5 @@ Access logs append through a direct file writer.
 
 
 The body limit defaults to 33554432 bytes and is configured with MaxBodyBytes in config.json. UpstreamTimeoutSeconds defaults to 30 seconds and bounds buffered HTTP requests, WebSocket handshakes, and WebSocket writes. Multipart camera streams continue after their response headers arrive and end when the upstream or caller closes. A stream is not buffered or limited to the buffered-response timeout. Invalid configuration is rejected at startup; CopyHeaders is an array of header names.
+
+
