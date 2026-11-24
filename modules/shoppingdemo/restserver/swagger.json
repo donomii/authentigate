@@ -1,13 +1,22 @@
 {
   "swagger": "2.0",
+  "securityDefinitions": {
+    "shopRequest": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-Requested-With",
+      "description": "Send authentigate-shop for state-changing requests. This is browser request protection, not user authentication."
+    }
+  },
   "paths": {
     "/shoppr/api/v1/addItem": {
-      "get": {
+      "post": {
         "tags": [
           "basket"
         ],
         "summary": "Add item to basket.",
         "operationId": "addItem",
+        "security": [{"shopRequest": []}],
         "parameters": [
           {
             "type": "string",
@@ -57,12 +66,13 @@
       }
     },
     "/shoppr/api/v1/createCoupon": {
-      "get": {
+      "post": {
         "tags": [
           "coupon"
         ],
         "summary": "Create a new coupon for given duration, discount and target item.",
         "operationId": "createCoupon",
+        "security": [{"shopRequest": []}],
         "parameters": [
           {
             "type": "integer",
@@ -90,12 +100,13 @@
       }
     },
     "/shoppr/api/v1/deleteCoupon": {
-      "get": {
+      "post": {
         "tags": [
           "coupon"
         ],
         "summary": "Delete a coupon.",
         "operationId": "deleteCoupon",
+        "security": [{"shopRequest": []}],
         "parameters": [
           {
             "type": "string",
@@ -139,16 +150,16 @@
       }
     },
     "/shoppr/api/v1/purchase": {
-      "get": {
+      "post": {
         "tags": [
           "basket"
         ],
-        "summary": "Purchase basket.",
+        "summary": "Record a demo order without collecting payment.",
         "operationId": "purchase",
+        "security": [{"shopRequest": []}],
         "parameters": [
           {
             "type": "string",
-            "x-go-name": "CCexpiry",
             "name": "Coupon",
             "in": "query"
           }
@@ -161,12 +172,13 @@
       }
     },
     "/shoppr/api/v1/reset": {
-      "get": {
+      "post": {
         "tags": [
           "reset"
         ],
         "summary": "Reset all data for testing.",
         "operationId": "reset",
+        "security": [{"shopRequest": []}],
         "responses": {
           "200": {
             "description": ""
