@@ -88,7 +88,8 @@ func TestConcurrentTokenRotationReturnsOneCurrentCookie(t *testing.T) {
 		go func() {
 			defer workers.Done()
 			response := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, "/manage/"+user.Token+"/newToken", nil)
+			request := httptest.NewRequest(http.MethodPost, "/manage/"+user.Token+"/newToken", strings.NewReader(url.Values{"csrf": {user.Token}}.Encode()))
+			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			newTokenHandler(&Context{Writer: response, Request: request}, user.Id, user.Token, nil, true)
 			responses <- response
 		}()
@@ -106,7 +107,7 @@ func TestConcurrentTokenRotationReturnsOneCurrentCookie(t *testing.T) {
 		}
 		successes++
 		cookies := response.Result().Cookies()
-		if len(cookies) != 1 || cookies[0].Name != "AuthentigateSessionToken" || cookies[0].Value != current.Token {
+		if len(cookies) != 1 || cookies[0].Name != "__Host-AuthentigateSessionToken" || cookies[0].Value != current.Token || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].Path != "/" {
 			t.Fatal("rotation did not return the current session cookie")
 		}
 		if !strings.Contains(response.Body.String(), current.Token) || strings.Contains(response.Body.String(), user.Token) {
@@ -131,7 +132,7 @@ func TestManagementRechecksTokenAfterAuthentication(t *testing.T) {
 		call func(*Context, string, string, *Redirect, bool)
 	}{{"token", tokenShowHandler}, {"updateUser", updateUserHandler}, {"newToken", newTokenHandler}} {
 		t.Run(handler.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/manage/"+user.Token+"/"+handler.name, strings.NewReader("username=changed"))
+			request := httptest.NewRequest(http.MethodPost, "/manage/"+user.Token+"/"+handler.name, strings.NewReader(url.Values{"username": {"changed"}, "csrf": {user.Token}}.Encode()))
 			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			response := httptest.NewRecorder()
 			handler.call(&Context{Writer: response, Request: request}, id, user.Token, nil, false)
@@ -268,7 +269,7 @@ func TestAccountQRImagesRequireCurrentAuthentication(t *testing.T) {
 		name string
 		call func(*Context, string, string, *Redirect, bool)
 	}{{"token", tokenShowHandler}, {"updateUser", updateUserHandler}} {
-		request := httptest.NewRequest(http.MethodPost, "/manage/"+user.Token+"/"+handler.name, strings.NewReader("username=renamed-user"))
+		request := httptest.NewRequest(http.MethodPost, "/manage/"+user.Token+"/"+handler.name, strings.NewReader(url.Values{"username": {"renamed-user"}, "csrf": {user.Token}}.Encode()))
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		response := httptest.NewRecorder()
 		handler.call(&Context{Writer: response, Request: request}, user.Id, user.Token, nil, false)

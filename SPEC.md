@@ -25,6 +25,11 @@ This project consists of two main components designed to facilitate running mult
 -   **Logic**:
     -   Manages Users (Session Token, OAuth Foreign IDs, TOTP Secrets).
     -   Provides routes for Login (OAuth2 callbacks), User Management, and Token display.
+    -   Session tokens contain 32 cryptographically random bytes. Rotating a token revokes the previous token without changing the user's authenticator secret. Session lookup requires an existing user whose current token matches the request; development identities cannot authenticate when development mode is disabled.
+    -   Account changes require POST forms with the current session token as a security token. Cookie-authenticated changes must originate from the configured origin. HTTPS cookies use the `__Host-` prefix, root path, Secure, HttpOnly, and SameSite=Lax. Account pages escape user text, embed enrollment QR images, and prevent caching and referrer disclosure.
+    -   OAuth login binds signed, expiring state to its initiating browser and provider. Provider configuration is validated at startup when OAuth is enabled. Authentication failures redact session tokens, OAuth codes and state, cookies, and provider secrets from logs.
+    -   Authenticator login works without an existing session. Accepted time steps cannot be reused; failures are limited to five per account and twenty per source address in five minutes. Account failure counts and the last accepted step persist with the user. Address tracking holds at most 4096 entries.
+    -   Authenticator signup displays enrollment once and saves an unapproved entry in `totp_pending.json`. Login displays the pending-approval page until approval. An approved entry still requires a valid authenticator code; successful login creates a full user and protected session, preserves the enrolled secret, removes the pending entry, and records the accepted step to reject replay.
     -   **Gateway Middleware**: `makeAuthedRelay` checks for session validity.
         -   If valid: Forwards request to configured microservice, injecting `authentigate-id`, `authentigate-token` headers.
         -   If invalid: Redirects to login or shows error.
