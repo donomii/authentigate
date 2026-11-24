@@ -191,9 +191,10 @@ func TestLoadConfigInvalidJSON(t *testing.T) {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
-	// This might panic or return a default config depending on implementation
-	// Just verify it doesn't crash unexpectedly
-	cfg := LoadConfig(tmpFile)
-	// If it doesn't panic, we should have some kind of config
-	_ = cfg
+	defer func() {
+		if recover() == nil {
+			t.Fatal("invalid JSON configuration was accepted")
+		}
+	}()
+	LoadConfig(tmpFile)
 }

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
@@ -187,14 +185,16 @@ type Redirect struct {
 	CopyHeaders          []string
 }
 type Config struct {
-	Redirects []Redirect
-	Port      int
-	BaseUrl   string
-	HostNames []string
-	Bans      []string
-	LogFile   string
-	Secure    bool
-	OAuthEnabled bool
+	Redirects              []Redirect
+	Port                   int
+	BaseUrl                string
+	HostNames              []string
+	Bans                   []string
+	LogFile                string
+	Secure                 bool
+	MaxBodyBytes           int64
+	UpstreamTimeoutSeconds int
+	OAuthEnabled           bool
 }
 
 var config *Config
@@ -218,9 +218,10 @@ func main() {
 	oauthEnabled = config.OAuthEnabled
 	var err error
 	var f *os.File
-	f, err = os.Create("accessLog")
+	f, err = os.OpenFile(config.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	check(err)
-	accessLog = bufio.NewWriterSize(f, 999999) //Golang!
+	defer f.Close()
+	accessLog = f
 	flag.BoolVar(&develop, "develop", false, "Allow log in with no password")
 	flag.StringVar(&baseUrl, "base-url", baseUrl, "The top level url for the authenticated section of your site")
 	flag.Parse()
@@ -617,115 +618,12 @@ func displayPage(c *Context, token, filename string, cookies map[string]string, 
 
 // Redirect to default microservice, using PUT
 func relayPutHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
-
-	api := "/" + c.Param("api")
-	logRelayRequest(c, id)
-	bodyData, _ := ioutil.ReadAll(c.Request.Body)
-	client := &http.Client{}
-	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
-	params := ""
-	if len(uribits) > 1 {
-		params = "?" + uribits[1]
-	}
-
-	req, err := http.NewRequest("PUT", relay.To+api+params, nil)
-
-	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
-	req.Header.Add("X-Forwarded-For", forwarded_for)
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
-	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
-	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
-	req.Header.Add("X-Forwarded-Host", c.Request.Host)
-
-	//Copy the bare minimum needed for a post request
-	//FIXME:  Move this into config file, allow configuration per-endpoint
-	CopyHeaders := []string{"Content-Type", "Content-Length", "Content-Disposition"}
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
-	}
-
-	CopyHeaders = relay.CopyHeaders
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
-	}
-
-	req.Body = io.NopCloser(bytes.NewReader(bodyData))
-
-	//Do it
-	resp, err := client.Do(req)
-	check(err)
-	respData, err := io.ReadAll(resp.Body)
-	check(err)
-
-	//Copy back the bare minimum needed
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Header("Content-Length", resp.Header.Get("Content-Length"))
-	c.Status(resp.StatusCode)
-	//Write the result
-	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	relayHTTPHandler(c, id, token, relay, useCookie)
 }
 
 // Redirect to default microservice, using POST
 func relayPostHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
-
-	api := "/" + c.Param("api")
-	logRelayRequest(c, id)
-	bodyData, err := ioutil.ReadAll(c.Request.Body)
-	if err != nil {
-		panic(err)
-	}
-	client := &http.Client{}
-	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
-	params := ""
-	if len(uribits) > 1 {
-		params = "?" + uribits[1]
-	}
-
-	req, err := http.NewRequest("POST", relay.To+api+params, nil)
-
-	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-
-	for k, _ := range c.Request.Header {
-		req.Header.Add(k, c.Request.Header.Get(k))
-	}
-
-	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
-	req.Header.Add("X-Forwarded-For", forwarded_for)
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
-	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
-	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
-	req.Header.Add("X-Forwarded-Host", c.Request.Host)
-
-	req.Body = io.NopCloser(bytes.NewReader(bodyData))
-
-	//Do it
-	resp, err := client.Do(req)
-	var respData []byte
-	if resp != nil {
-		if resp.Body != nil {
-			respData, err = io.ReadAll(resp.Body)
-			check(err)
-		}
-
-		for k, h := range resp.Header {
-			c.Header(k, h[0])
-		}
-
-		//Write the result
-		c.Writer.Write(respData)
-		accessLog.Write([]byte(format_clf(
-			c,
-			id,
-			fmt.Sprintf("%v", resp.StatusCode),
-			fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
-	} else {
-		logRelayFailure(c, err)
-
-	}
+	relayHTTPHandler(c, id, token, relay, useCookie)
 }
 
 // Not very functional, but it will do for now
@@ -733,12 +631,12 @@ func AddAuthToRequest(req *http.Request, id, token, baseUrl string, relay *Redir
 	microserviceBaseUrl := fmt.Sprintf("%vc/%v/", baseUrl, relay.Name)
 	microserviceTokenUrl := fmt.Sprintf("%v%v/%v/", baseUrl, token, relay.Name)
 	siteTopUrl := fmt.Sprintf("%v%v/", baseUrl, token)
-	req.Header.Add("authentigate-id", id)
-	req.Header.Add("authentigate-token", token)
+	req.Header.Set("authentigate-id", id)
+	req.Header.Set("authentigate-token", token)
 	//req.Header.Add("X-Auth-Token", token)
-	req.Header.Add("authentigate-base-url", microserviceBaseUrl)
-	req.Header.Add("authentigate-base-token-url", microserviceTokenUrl)
-	req.Header.Add("authentigate-top-url", siteTopUrl)
+	req.Header.Set("authentigate-base-url", microserviceBaseUrl)
+	req.Header.Set("authentigate-base-token-url", microserviceTokenUrl)
+	req.Header.Set("authentigate-top-url", siteTopUrl)
 }
 
 // isStreamingContentType returns true for content types that must be proxied
@@ -794,68 +692,7 @@ func relayStreamHandler(c *Context, id, token string, relay *Redirect, useCookie
 
 // Redirect to default microservice, using GET
 func relayGetHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
-
-	api := "/" + c.Param("api")
-
-	client := &http.Client{}
-
-	//Pass params through untouched (security implications?)
-	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
-	params := ""
-	if len(uribits) > 1 {
-		params = "?" + uribits[1]
-	}
-
-	//TODO make this configurable from a file
-	var req *http.Request
-	var err error
-	if websocket.IsWebSocketUpgrade(c.Request) {
-		req, err = newWebSocketRequest(c, relay.To)
-	} else {
-		req, err = http.NewRequest("GET", relay.To+api+params, nil)
-	}
-	check(err)
-
-	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-
-	forwarded_for := c.Request.Header.Get("X-Forwarded-For")
-	req.Header.Add("X-Forwarded-For", forwarded_for)
-	req.Header.Add("X-Forwarded-For", c.Request.RemoteAddr)
-	req.Header.Add("X-Real-IP", c.RemoteIP())
-	req.Header.Add("X-Forwarded-Port", fmt.Sprintf("%v", config.Port))
-	req.Header.Add("X-Forwarded-Proto", c.Request.Proto)
-	req.Header.Add("X-Forwarded-Host", c.Request.Host)
-	CopyHeaders := relay.CopyHeaders
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
-	}
-
-	if websocket.IsWebSocketUpgrade(c.Request) {
-		logRelayRequest(c, id)
-		upgradeAndHandle(c, req)
-		return
-	}
-
-	logRelayRequest(c, id)
-	resp, err := client.Do(req)
-	check(err)
-
-	// If the backend is sending a streaming response (e.g. MJPEG), proxy it
-	// as a live stream rather than buffering the whole body.
-	if isStreamingContentType(resp.Header.Get("Content-Type")) {
-		relayStreamHandler(c, id, token, relay, useCookie, req, resp)
-		accessLog.Write([]byte(format_clf(c, id, "200", "-") + "\n"))
-		return
-	}
-
-	respData, err := io.ReadAll(resp.Body)
-
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Header("Content-Disposition", resp.Header.Get("Content-Disposition"))
-	c.Status(resp.StatusCode)
-	c.Writer.Write(respData)
-	logMess := []byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n")
-	accessLog.Write(logMess)
+	relayHTTPHandler(c, id, token, relay, useCookie)
 }
 
 // Redirect to correct oAuth URL
@@ -1040,74 +877,15 @@ func developCallbackHandler(c *Context) {
 
 func ngfileserverRelayParameterisedHandler(c *Context, id, token string, relay *Redirect, useCookie bool) {
 	c.Header("Cache-Control", "no-cache,no-store")
-	api := "/" + c.Param("api")
-	logRelayRequest(c, id)
-
-	client := &http.Client{}
-	uribits := strings.SplitN(c.Request.RequestURI, "?", 2)
-	params := ""
-	if len(uribits) > 1 {
-		params = "?" + uribits[1]
-	}
-	req, err := http.NewRequest("GET", relay.To+api+params, nil)
-
-	AddAuthToRequest(req, id, token, baseUrl, relay, useCookie)
-	resp, err := client.Do(req)
-	respData, err := io.ReadAll(resp.Body)
-	check(err)
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Status(resp.StatusCode)
-	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	relayHTTPHandler(c, id, token, relay, useCookie)
 }
 
 func ngfileserverRelayHandler(c *Context, id, token, target string) {
-
-	api := "/" + c.Param("api")
-	logRelayRequest(c, id)
-
-	completeBaseUrl := fmt.Sprintf("%v%v/ngfileserver/", baseUrl, token)
-
-	client := &http.Client{}
-
-	req, err := http.NewRequest("GET", target+api, nil)
-
-	req.Header.Add("authentigate-id", id)
-	req.Header.Add("authentigate-token", token)
-	req.Header.Add("authentigate-base-url", completeBaseUrl)
-	resp, err := client.Do(req)
-	respData, err := io.ReadAll(resp.Body)
-	check(err)
-	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	relay := &Redirect{Name: "ngfileserver", To: target}
+	relayHTTPHandler(c, id, token, relay, false)
 }
 
 func ngfileserverPutRelayHandler(c *Context, id, token, target string) {
-
-	api := "/" + c.Param("api")
-	logRelayRequest(c, id)
-
-	completeBaseUrl := fmt.Sprintf("%v%v/ngfileserver/", baseUrl, token)
-
-	client := &http.Client{}
-
-	req, err := http.NewRequest("PUT", target+api, nil)
-
-	req.Header.Add("authentigate-id", id)
-	req.Header.Add("authentigate-token", token)
-	req.Header.Add("authentigate-base-url", completeBaseUrl)
-	//FIXME: Move to config file, allow configuration per-endpoint
-	CopyHeaders := []string{"Content-Type", "Content-Length"}
-	for _, h := range CopyHeaders {
-		req.Header.Add(h, c.Request.Header.Get(h))
-	}
-	bodyData, _ := ioutil.ReadAll(c.Request.Body)
-	req.Body = io.NopCloser(bytes.NewReader(bodyData))
-	resp, err := client.Do(req)
-	respData, err := io.ReadAll(resp.Body)
-	check(err)
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Status(resp.StatusCode)
-	c.Writer.Write(respData)
-	accessLog.Write([]byte(format_clf(c, id, fmt.Sprintf("%v", resp.StatusCode), fmt.Sprintf("%v", resp.ContentLength)) + "\n"))
+	relay := &Redirect{Name: "ngfileserver", To: target}
+	relayHTTPHandler(c, id, token, relay, false)
 }
